@@ -217,12 +217,25 @@ void testBars() {
   printer.feed(2);
 }
 
+void serialTest() {
+  // ESC @ - Сброс принтера
+  mySerial.write(0x1B);
+  mySerial.write(0x40);
+
+  // Отправка текста (ASCII символы)
+  mySerial.write("Test send to serial\n");
+
+  // Перевод строки (0x0A)
+  mySerial.write(0x0A);
+  mySerial.write(0x0A);
+}
+
 void setup() {
   mySerial.begin(9600);  // Убедитесь, что скорость совпадает с настройкой принтера
                          //  Инициируем передачу данных по программной шине UART на скорости 9600. Функцию begin объекта mySerial нужно вызвать до вызова функции begin объекта printer!
   printer.begin();       //  Инициируем работу с термопринтером. В качестве параметра можно указать время нагрева пикселей от 3 (0,03 мс) до 255 (2,55 мс), чем выше тем темнее пикселы. Значение по умолчанию = 120 (1,20 мс)
-
-  //mySerial.write("Test send to serial\n");
+  // NOTE в этом случае printer.begin() не нужен
+  //testSerial();
 
   //testHello();
 
