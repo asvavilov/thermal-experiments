@@ -217,7 +217,7 @@ void testBars() {
   printer.feed(2);
 }
 
-void serialTest() {
+void testSerial() {
   // ESC @ - Сброс принтера
   mySerial.write(0x1B);
   mySerial.write(0x40);
