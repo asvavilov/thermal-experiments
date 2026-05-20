@@ -281,7 +281,7 @@ void sdBegin() {
     // Общее количество байтов: (ширина * высота) / 8
     // Добавляем 7 для правильного округления при делении
     uint16_t totalBytes = (w * h + 7) / 8;
-    // Читаем байт за байтом из PROGMEM и сразу пишем в файл [citation:4]
+    // Читаем байт за байтом из PROGMEM и сразу пишем в файл
     for (uint16_t i = 0; i < totalBytes; i++) {
       uint8_t b = pgm_read_byte(&bitmap_anime[i]);  // Читаем из flash-памяти
       myFile.write(b);                            // Пишем в файл на SD-карту
