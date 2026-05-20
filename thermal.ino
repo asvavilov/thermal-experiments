@@ -1,8 +1,17 @@
 #include "Adafruit_Thermal.h"
 #include "SoftwareSerial.h"
+#include <SD.h>
 
 // ESC/POS
 // https://escpos.readthedocs.io/en/latest/commands.html#
+
+/*
+SD card attached to SPI bus as follows:
+SDO - pin 11
+SDI - pin 12
+CLK - pin 13
+CS - pin 10
+*/
 
 //#include "logo.h"
 //#include "anime.h"
@@ -12,12 +21,16 @@
 //#include "mipiace_stgirl.h"
 //#include "g729a6f3cb5d55cc5b6f6a7a758d116c1.h"
 
-#define TX_PIN 11  // Пин Arduino к RX принтера
-#define RX_PIN 10  // Пин Arduino к TX принтера
+#define TX_PIN 9  // Пин Arduino к RX принтера
+#define RX_PIN 8  // Пин Arduino к TX принтера
+#define DTR_PIN 7
 
 SoftwareSerial mySerial(RX_PIN, TX_PIN);
 // см. ниже про DTR
-Adafruit_Thermal printer(&mySerial, 7);
+Adafruit_Thermal printer(&mySerial, DTR_PIN);
+
+const int chipSelect = 10;
+File myFile;
 
 String utf8_to_cp1251(String source) {
   String target = "";
@@ -189,6 +202,15 @@ void testBitmap() {
   //printer.feed(2);
 }
 
+void testSd() {
+  myFile = SD.open("image.raw", FILE_READ);
+  if (myFile) {
+    // Приведение типа File -> Stream
+    printer.printBitmap(dynamic_cast<Stream*>(&myFile));
+    myFile.close();
+  }
+}
+
 void testBars() {
   printer.print(F("UPC-A:"));                    //  Выводим текст с названием формата штрих-кода
   printer.printBarcode("123456789012", UPC_A);   //  Выводим штрих-код в формате UPC_A.                                В данном формате используются 12 цифр
@@ -230,16 +252,102 @@ void testSerial() {
   mySerial.write(0x0A);
 }
 
+void sdBegin() {
+  Serial.print("Initializing SD card...");
+  if (!SD.begin(chipSelect)) {
+    Serial.println("initialization failed. Things to check:");
+    Serial.println("1. is a card inserted?");
+    Serial.println("2. is your wiring correct?");
+    Serial.println("3. did you change the chipSelect pin to match your shield or module?");
+    Serial.println("Note: press reset button on the board and reopen this Serial Monitor after fixing your issue!");
+    while (true)
+      ;
+  }
+  Serial.println("initialization done.");
+
+  /*
+  // пример подготовки файла
+  myFile = SD.open("image.raw", FILE_WRITE);
+  if (myFile) {
+    Serial.print("Writing to image.raw...");
+    uint8_t w = 49;
+    uint8_t h = 64;
+    // Записываем заголовок (ширина и высота)
+    myFile.write(w & 0xFF);
+    myFile.write((w >> 8) & 0xFF);
+    myFile.write(h & 0xFF);
+    myFile.write((h >> 8) & 0XFF);
+    // Записываем байты самого изображения из PROGMEM ---
+    // Общее количество байтов: (ширина * высота) / 8
+    // Добавляем 7 для правильного округления при делении
+    uint16_t totalBytes = (w * h + 7) / 8;
+    // Читаем байт за байтом из PROGMEM и сразу пишем в файл [citation:4]
+    for (uint16_t i = 0; i < totalBytes; i++) {
+      uint8_t b = pgm_read_byte(&bitmap_anime[i]);  // Читаем из flash-памяти
+      myFile.write(b);                            // Пишем в файл на SD-карту
+    }
+    // close the file:
+    myFile.close();
+    Serial.println("done.");
+  } else {
+    Serial.println("error opening image.raw");
+  }
+  */
+
+  /*
+  // open the file. note that only one file can be open at a time,
+  // so you have to close this one before opening another.
+  myFile = SD.open("test.txt", FILE_WRITE);
+  // if the file opened okay, write to it:
+  if (myFile) {
+    Serial.print("Writing to test.txt...");
+    myFile.println("testing 1, 2, 3.");
+    // close the file:
+    myFile.close();
+    Serial.println("done.");
+  } else {
+    // if the file didn't open, print an error:
+    Serial.println("error opening test.txt");
+  }
+  */
+  /*
+  // re-open the file for reading:
+  myFile = SD.open("test.txt");
+  if (myFile) {
+    Serial.println("test.txt:");
+
+    // read from the file until there's nothing else in it:
+    while (myFile.available()) {
+      Serial.write(myFile.read());
+    }
+    // close the file:
+    myFile.close();
+  } else {
+    // if the file didn't open, print an error:
+    Serial.println("error opening test.txt");
+  }
+  */
+}
+
 void setup() {
+  Serial.begin(9600);
+  // wait for Serial Monitor to connect. Needed for native USB port boards only:
+  while (!Serial)
+    ;
+
   mySerial.begin(9600);  // Убедитесь, что скорость совпадает с настройкой принтера
                          //  Инициируем передачу данных по программной шине UART на скорости 9600. Функцию begin объекта mySerial нужно вызвать до вызова функции begin объекта printer!
-  printer.begin();       //  Инициируем работу с термопринтером. В качестве параметра можно указать время нагрева пикселей от 3 (0,03 мс) до 255 (2,55 мс), чем выше тем темнее пикселы. Значение по умолчанию = 120 (1,20 мс)
+
+  sdBegin();
+
+  printer.begin();  //  Инициируем работу с термопринтером. В качестве параметра можно указать время нагрева пикселей от 3 (0,03 мс) до 255 (2,55 мс), чем выше тем темнее пикселы. Значение по умолчанию = 120 (1,20 мс)
   // NOTE в этом случае printer.begin() не нужен
   //testSerial();
 
   //testHello();
 
   //testBitmap();
+  //testSd();
 
   //testFonts();
 
