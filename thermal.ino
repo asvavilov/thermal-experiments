@@ -265,6 +265,8 @@ void sdBegin() {
   }
   Serial.println("initialization done.");
 
+  // FIXME переписывать файл с начала
+
   /*
   // пример подготовки файла
   myFile = SD.open("image.raw", FILE_WRITE);
@@ -278,13 +280,11 @@ void sdBegin() {
     myFile.write(h & 0xFF);
     myFile.write((h >> 8) & 0XFF);
     // Записываем байты самого изображения из PROGMEM ---
-    // Общее количество байтов: (ширина * высота) / 8
-    // Добавляем 7 для правильного округления при делении
-    uint16_t totalBytes = (w * h + 7) / 8;
+    uint16_t totalBytes = sizeof(bitmap_anime);
     // Читаем байт за байтом из PROGMEM и сразу пишем в файл
     for (uint16_t i = 0; i < totalBytes; i++) {
       uint8_t b = pgm_read_byte(&bitmap_anime[i]);  // Читаем из flash-памяти
-      myFile.write(b);                            // Пишем в файл на SD-карту
+      myFile.write(b);                              // Пишем в файл на SD-карту
     }
     // close the file:
     myFile.close();
