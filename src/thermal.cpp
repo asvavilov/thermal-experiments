@@ -1,3 +1,4 @@
+#include <Arduino.h>
 #include "Adafruit_Thermal.h"
 #include "SoftwareSerial.h"
 #include <SD.h>
