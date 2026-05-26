@@ -21,7 +21,6 @@ CS - pin 10
 //#include "john_wick_portrait_black_white_keanu_reeves_thumbnail.h"
 //#include "john_wick_portrait_design_elements_black_white_handdrawn_68721.h"
 //#include "mipiace_stgirl.h"
-//#include "g729a6f3cb5d55cc5b6f6a7a758d116c1.h"
 
 #define TX_PIN 9  // Пин Arduino к RX принтера
 #define RX_PIN 8  // Пин Arduino к TX принтера
