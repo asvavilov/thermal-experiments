@@ -2,6 +2,7 @@
 #include "Adafruit_Thermal.h"
 #include "SoftwareSerial.h"
 #include <SD.h>
+#include <avr/pgmspace.h>
 
 // ESC/POS
 // https://escpos.readthedocs.io/en/latest/commands.html#
