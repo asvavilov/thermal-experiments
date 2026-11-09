@@ -9,6 +9,7 @@
 
 #include "config.h"
 #include "printer.h"
+#include "rich_text.h"
 #include "sd_store.h"
 #include "template_store.h"
 #include "web_ui.h"
@@ -109,6 +110,26 @@ bool barcodeSupported(const String& type) {
          t == "EAN8" || t == "EAN-8" || t == "CODE39" || t == "CODE-39" ||
          t == "ITF" || t == "CODABAR" || t == "UPCA" || t == "UPC-A" ||
          t == "UPCE" || t == "UPC-E";
+}
+
+String applyInitialStyle(const String& text, uint8_t size, char align,
+                         bool bold, bool underline) {
+  String markup;
+  markup.reserve(text.length() + 48);
+  if (size >= 2) {
+    markup += "[setSize,";
+    markup += (size == 2) ? 'M' : 'L';
+    markup += "]";
+  }
+  if (align == 'C' || align == 'R') {
+    markup += "[justify,";
+    markup += align;
+    markup += "]";
+  }
+  if (bold) markup += "[boldOn]";
+  if (underline) markup += "[underlineOn]";
+  markup += text;
+  return markup;
 }
 
 void sendJson(int code, JsonDocument& doc) {
@@ -281,8 +302,10 @@ void handleText() {
   if (text.length() == 0) return sendError(400, "text is empty");
   if (text.length() > MAX_TEXT_LEN) return sendError(413, "text too long");
 
-  if (!printerText(text, size, bold, underline, align, feed)) {
-    return sendError(503, "printer not ready");
+  const String markup = applyInitialStyle(text, size, align, bold, underline);
+  String error;
+  if (!printerRichText(markup, feed, error)) {
+    return sendError(503, error.length() ? error.c_str() : "printer not ready");
   }
   sendOk("printed");
 }
@@ -386,8 +409,10 @@ void handlePrintGet() {
   if (feed < 0) feed = 0;
   if (feed > 20) feed = 20;
 
-  if (!printerText(text, size, bold, underline, align, (uint8_t)feed)) {
-    return sendError(503, "printer not ready");
+  const String markup = applyInitialStyle(text, size, align, bold, underline);
+  String error;
+  if (!printerRichText(markup, (uint8_t)feed, error)) {
+    return sendError(503, error.length() ? error.c_str() : "printer not ready");
   }
   sendOk("printed");
 }

@@ -11,9 +11,10 @@ Preferences prefs;
 bool prefsReady = false;
 uint8_t heatValue = DEFAULT_HEAT;
 bool dtrPresent = false;
+uint8_t printMode = 0;
 
 // ---------------------------------------------------------------------------
-// UTF-8 -> CP1251
+// UTF-8 -> CP1251 / CP866 / ASCII
 // ---------------------------------------------------------------------------
 
 void appendCp1251(String& out, uint32_t cp) {
@@ -38,6 +39,13 @@ void appendCp1251(String& out, uint32_t cp) {
     case 0x201D: out += (char)0x94; return;  // ”
     case 0x2026: out += (char)0x85; return;  // …
     case 0x2116: out += (char)0xB9; return;  // №
+    case 0x20AC: out += (char)0x88; return;  // €
+    case 0x20BD:                            // ₽ — в CP1251 нет, печатаем «руб.»
+      out += (char)0xF0;  // р
+      out += (char)0xF3;  // у
+      out += (char)0xE1;  // б
+      out += '.';
+      return;
     case 0x00A0: out += (char)0xA0; return;  // NBSP
     case 0x00B0: out += (char)0xB0; return;  // °
     case 0x00B7: out += (char)0xB7; return;  // ·
@@ -45,7 +53,49 @@ void appendCp1251(String& out, uint32_t cp) {
   }
 }
 
-String utf8ToCp1251(const String& src) {
+void appendCp866(String& out, uint32_t cp) {
+  if (cp < 0x80) {
+    out += (char)cp;
+    return;
+  }
+  if (cp >= 0x0410 && cp <= 0x043F) {  // А..п
+    out += (char)(cp - 0x0410 + 0x80);
+    return;
+  }
+  if (cp >= 0x0440 && cp <= 0x044F) {  // р..я
+    out += (char)(cp - 0x0440 + 0xE0);
+    return;
+  }
+  switch (cp) {
+    case 0x0401: out += (char)0xF0; return;  // Ё
+    case 0x0451: out += (char)0xF1; return;  // ё
+    case 0x2013:
+    case 0x2014: out += '-'; return;
+    case 0x00AB:
+    case 0x00BB:
+    case 0x2018:
+    case 0x2019:
+    case 0x201C:
+    case 0x201D: out += '"'; return;
+    case 0x2026: out += '.'; return;
+    case 0x20BD:                            // ₽ — в CP866 нет, печатаем «руб.»
+      out += (char)0xE0;  // р
+      out += (char)0xE3;  // у
+      out += (char)0xA1;  // б
+      out += '.';
+      return;
+    case 0x00A0: out += ' '; return;
+    default:     out += '?'; return;
+  }
+}
+
+void appendAscii(String& out, uint32_t cp) {
+  out += (cp < 0x80) ? (char)cp : '?';
+}
+
+typedef void (*CpAppend)(String&, uint32_t);
+
+String decodeUtf8(const String& src, CpAppend append) {
   String out;
   out.reserve(src.length());
   const uint8_t* s = (const uint8_t*)src.c_str();
@@ -74,11 +124,15 @@ String utf8ToCp1251(const String& src) {
       continue;
     }
 
-    appendCp1251(out, cp);
+    append(out, cp);
     i += len;
   }
   return out;
 }
+
+String utf8ToCp1251(const String& src) { return decodeUtf8(src, appendCp1251); }
+String utf8ToCp866(const String& src) { return decodeUtf8(src, appendCp866); }
+String utf8ToAscii(const String& src) { return decodeUtf8(src, appendAscii); }
 
 // ---------------------------------------------------------------------------
 // Низкоуровневая передача
@@ -131,6 +185,20 @@ void flushInput() {
   while (Serial2.available()) Serial2.read();
 }
 
+void writePrintMode() {
+  const uint8_t cmd[] = {0x1B, 0x21, printMode};  // ESC ! n
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void setPrintModeBit(uint8_t mask, bool on) {
+  if (on) {
+    printMode |= mask;
+  } else {
+    printMode &= (uint8_t)~mask;
+  }
+  writePrintMode();
+}
+
 }  // namespace
 
 // ---------------------------------------------------------------------------
@@ -176,9 +244,15 @@ void printerLoadSettings() {
 }
 
 bool printerBeginJob() {
+  printerWake();  // 0xFF + ESC 8 0 0 — выйти из сна, если предыдущий тег усыпил
   const uint8_t reset[] = {0x1B, 0x40};  // ESC @
   if (!writeBytes(reset, sizeof(reset))) return false;
   delay(50);
+
+  printerOnline(true);  // ESC = 1 — выйти из offline, если предыдущий тег выключил
+
+  printMode = 0;
+  writePrintMode();  // ESC ! 0 — сбросить режим печати
 
   // Включить аппаратное управление потоком по DTR (как в Adafruit_Thermal).
   const uint8_t dtrOn[] = {0x1D, 0x61, 0x20};  // GS a 0x20
@@ -195,6 +269,7 @@ bool printerBeginJob() {
 }
 
 void printerReset() {
+  printMode = 0;
   const uint8_t cmd[] = {0x1B, 0x40};
   writeBytes(cmd, sizeof(cmd));
 }
@@ -246,7 +321,7 @@ bool printerText(const String& utf8, uint8_t size, bool bold, bool underline,
     if (!writeBytes(cmd, sizeof(cmd))) return false;
   }
 
-  const String cp = utf8ToCp1251(normalized);
+  const String cp = printerEncodeText(normalized, 46);
   if (!writeBytes((const uint8_t*)cp.c_str(), cp.length())) return false;
 
   if (cp.length() == 0 || cp[cp.length() - 1] != '\n') {
@@ -258,6 +333,142 @@ bool printerText(const String& utf8, uint8_t size, bool bold, bool underline,
     if (!writeBytes(feedCmd, sizeof(feedCmd))) return false;
   }
   return true;
+}
+
+String printerEncodeText(const String& utf8, uint8_t codePage) {
+  if (codePage == 46) return utf8ToCp1251(utf8);
+  if (codePage == 17) return utf8ToCp866(utf8);
+  return utf8ToAscii(utf8);
+}
+
+void printerSetSize(char size) {
+  switch (toupper(size)) {
+    case 'M':
+      setPrintModeBit(1 << 4, true);   // double height
+      setPrintModeBit(1 << 5, false);  // normal width
+      break;
+    case 'L':
+      setPrintModeBit(1 << 4, true);
+      setPrintModeBit(1 << 5, true);
+      break;
+    default:  // S
+      setPrintModeBit(1 << 4, false);
+      setPrintModeBit(1 << 5, false);
+      break;
+  }
+}
+
+void printerSetJustify(char align) {
+  const uint8_t a = (toupper(align) == 'C') ? 1 : (toupper(align) == 'R') ? 2 : 0;
+  const uint8_t cmd[] = {0x1B, 0x61, a};  // ESC a n
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerSetBold(bool on) { setPrintModeBit(1 << 3, on); }
+
+void printerSetUnderline(uint8_t weight) {
+  if (weight > 2) weight = 2;
+  const uint8_t cmd[] = {0x1B, 0x2D, weight};  // ESC - n
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerSetInverse(bool on) {
+  const uint8_t cmd[] = {0x1D, 0x42, (uint8_t)(on ? 1 : 0)};  // GS B n
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerSetDoubleHeight(bool on) { setPrintModeBit(1 << 4, on); }
+void printerSetDoubleWidth(bool on) { setPrintModeBit(1 << 5, on); }
+void printerSetStrike(bool on) { setPrintModeBit(1 << 6, on); }
+
+void printerSetUpsideDown(bool on) {
+  const uint8_t cmd[] = {0x1B, 0x7B, (uint8_t)(on ? 1 : 0)};  // ESC { n
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerSetFont(char font) {
+  setPrintModeBit(1 << 0, toupper(font) == 'B');
+}
+
+void printerSetLineHeight(uint8_t dots) {
+  if (dots < 24) dots = 24;
+  const uint8_t cmd[] = {0x1B, 0x33, dots};  // ESC 3 n
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerSetCharSpacing(uint8_t dots) {
+  const uint8_t cmd[] = {0x1B, 0x20, dots};  // ESC SP n
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerTab() { writeByte(0x09); }
+
+void printerFeedRows(uint8_t dots) {
+  const uint8_t cmd[] = {0x1B, 0x4A, dots};  // ESC J n
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerSetCodePage(uint8_t page) {
+  if (page > 47) page = 47;
+  const uint8_t cmd[] = {0x1B, 0x74, page};  // ESC t n
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerSetCharset(uint8_t charset) {
+  if (charset > 15) charset = 15;
+  const uint8_t cmd[] = {0x1B, 0x52, charset};  // ESC R n
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerSetBarcodeHeight(uint8_t height) {
+  if (height < 1) height = 1;
+  const uint8_t cmd[] = {0x1D, 0x68, height};  // GS h n
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerSetPrintDensity(uint8_t density, uint8_t breakTime) {
+  if (density > 31) density = 31;
+  if (breakTime > 7) breakTime = 7;
+  const uint8_t cmd[] = {0x12, 0x23,
+                         (uint8_t)(((breakTime & 0x07) << 5) | (density & 0x1F))};
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerSetHeatConfig(uint8_t dots, uint8_t time, uint8_t interval) {
+  const uint8_t cmd[] = {0x1B, 0x37, dots, time, interval};  // ESC 7
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerSleepAfter(uint16_t seconds) {
+  const uint8_t cmd[] = {0x1B, 0x38, (uint8_t)(seconds & 0xFF),
+                         (uint8_t)(seconds >> 8)};  // ESC 8 nL nH
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerWake() {
+  writeByte(0xFF);
+  delay(50);
+  const uint8_t cmd[] = {0x1B, 0x38, 0x00, 0x00};  // sleep off
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerOnline(bool on) {
+  const uint8_t cmd[] = {0x1B, 0x3D, (uint8_t)(on ? 1 : 0)};  // ESC = n
+  writeBytes(cmd, sizeof(cmd));
+}
+
+void printerSetDefault() {
+  printMode = 0;
+  writePrintMode();
+  printerOnline(true);
+  printerSetJustify('L');
+  printerSetInverse(false);
+  printerSetUnderline(0);
+  printerSetLineHeight(30);
+  printerSetCharSpacing(0);
+  printerSetBarcodeHeight(50);
+  printerSetCharset(0);
+  printerSetUpsideDown(false);
 }
 
 void printerBitmapHeader(uint16_t width, uint16_t height) {

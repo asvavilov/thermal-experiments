@@ -40,6 +40,20 @@ textarea{resize:vertical;min-height:90px}
 input[type=checkbox]{width:auto;accent-color:var(--acc)}
 input[type=range]{padding:0;accent-color:var(--acc);background:transparent;border:0}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin-top:12px}
+.fmt-group{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+.fmt-group:first-of-type{border-top:0;padding-top:0}
+.fmt-label{color:var(--mut);font-size:.78rem;font-weight:600;margin-right:2px}
+.fmt-group button{padding:6px 9px;font-size:.78rem}
+.fmt-group select{width:auto;min-width:9rem}
+.fmt-inline{display:flex;flex-direction:row;align-items:center;gap:4px;font-size:.78rem;color:var(--mut);width:auto}
+.fmt-inline input{width:4.5rem;padding:6px 8px}
+.fmt-details{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}
+.fmt-details summary{cursor:pointer;color:var(--mut);font-size:.85rem;font-weight:600}
+.tag-help{font-size:.82rem;color:#c8d3df;margin-top:8px}
+.tag-help ul{padding-left:1.2rem;margin:8px 0}
+.tag-help li{margin:4px 0}
+.tag-help code{color:var(--fg);background:#0b0e12;border:1px solid var(--line);border-radius:5px;padding:1px 4px}
+.tag-help pre{margin:8px 0}
 .row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
 .row input{flex:1}
 .row select{flex:1 1 200px;min-width:0}
@@ -89,20 +103,161 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
     <div class="card">
       <h2>Текст</h2>
       <label for="text">Содержимое</label>
-      <textarea id="text" rows="7" placeholder="Введите текст..."></textarea>
-      <div class="hint"><span id="charCount">0</span> символов · S: ~32, M: ~16, L: ~10 символов в строке</div>
+      <textarea id="text" rows="8" placeholder="[setSize,L]ЗАГОЛОВОК&#10;[setSize,M]Обычный текст, [boldOn]жирное слово[boldOff]."></textarea>
+      <div class="hint"><span id="charCount">0</span> символов · теги в квадратных скобках выполняются по порядку, закрывающие не нужны.</div>
       <div class="grid">
-        <label>Размер<select id="size"><option value="1">S</option><option value="2" selected>M</option><option value="3">L</option></select></label>
-        <label>Выравнивание<select id="align"><option value="L">Слева</option><option value="C">Центр</option><option value="R">Справа</option></select></label>
-        <label>Отступ, строк<input id="feed" type="number" min="0" max="20" value="2"></label>
-        <label class="check"><input id="bold" type="checkbox"> Жирный</label>
-        <label class="check"><input id="underline" type="checkbox"> Подчёркнутый</label>
+        <label>Подача в конце, строк<input id="feed" type="number" min="0" max="20" value="2"></label>
       </div>
       <div class="actions">
         <button class="primary" id="btnText">Печать</button>
         <button id="btnTest">Тестовая страница</button>
         <button id="btnFeedTop">Подать 3 строки</button>
       </div>
+    </div>
+
+    <div class="card">
+      <h3>Форматирование</h3>
+      <div class="hint">Кнопка вставляет тег в позицию курсора. Действие тега продолжается до следующего тега. Пример: <code>[setSize,L]</code>Заголовок<code>[setSize,S]</code>обычный текст.</div>
+
+      <div class="fmt-group">
+        <span class="fmt-label">Размер</span>
+        <button class="tagbtn" data-tag="[setSize,S]">S</button>
+        <button class="tagbtn" data-tag="[setSize,M]">M</button>
+        <button class="tagbtn" data-tag="[setSize,L]">L</button>
+        <span class="fmt-label">Шрифт</span>
+        <button class="tagbtn" data-tag="[setFont,A]">A</button>
+        <button class="tagbtn" data-tag="[setFont,B]">B</button>
+      </div>
+
+      <div class="fmt-group">
+        <span class="fmt-label">Выравнивание</span>
+        <button class="tagbtn" data-tag="[justify,L]">Слева</button>
+        <button class="tagbtn" data-tag="[justify,C]">Центр</button>
+        <button class="tagbtn" data-tag="[justify,R]">Справа</button>
+      </div>
+
+      <div class="fmt-group">
+        <span class="fmt-label">Стиль</span>
+        <button class="tagbtn" data-tag="[boldOn]">boldOn</button>
+        <button class="tagbtn" data-tag="[boldOff]">boldOff</button>
+        <button class="tagbtn" data-tag="[underlineOn]">underlineOn</button>
+        <button class="tagbtn" data-tag="[underlineOn,2]">underlineOn,2</button>
+        <button class="tagbtn" data-tag="[underlineOff]">underlineOff</button>
+        <button class="tagbtn" data-tag="[inverseOn]">inverseOn</button>
+        <button class="tagbtn" data-tag="[inverseOff]">inverseOff</button>
+        <button class="tagbtn" data-tag="[strikeOn]">strikeOn</button>
+        <button class="tagbtn" data-tag="[strikeOff]">strikeOff</button>
+      </div>
+
+      <div class="fmt-group">
+        <span class="fmt-label">Ширина / высота</span>
+        <button class="tagbtn" data-tag="[doubleWidthOn]">doubleWidthOn</button>
+        <button class="tagbtn" data-tag="[doubleWidthOff]">doubleWidthOff</button>
+        <button class="tagbtn" data-tag="[doubleHeightOn]">doubleHeightOn</button>
+        <button class="tagbtn" data-tag="[doubleHeightOff]">doubleHeightOff</button>
+        <button class="tagbtn" data-tag="[upsideDownOn]">upsideDownOn</button>
+        <button class="tagbtn" data-tag="[upsideDownOff]">upsideDownOff</button>
+      </div>
+
+      <div class="fmt-group">
+        <span class="fmt-label">Интервалы</span>
+        <label class="fmt-inline">Строка <input id="lineHeight" type="number" min="24" max="255" value="30"></label>
+        <button id="btnLineHeight">setLineHeight</button>
+        <label class="fmt-inline">Символ <input id="charSpacing" type="number" min="0" max="255" value="0"></label>
+        <button id="btnCharSpacing">setCharSpacing</button>
+      </div>
+
+      <div class="fmt-group">
+        <span class="fmt-label">Подача</span>
+        <label class="fmt-inline">Строк <input id="feedTag" type="number" min="0" max="255" value="1"></label>
+        <button id="btnFeedTag">feed</button>
+        <label class="fmt-inline">Точек <input id="feedRowsTag" type="number" min="0" max="255" value="20"></label>
+        <button id="btnFeedRows">feedRows</button>
+        <button class="tagbtn" data-tag="[tab]">tab</button>
+      </div>
+
+      <div class="fmt-group">
+        <span class="fmt-label">Сброс</span>
+        <button class="tagbtn" data-tag="[setDefault]">setDefault</button>
+        <button class="tagbtn" data-tag="[reset]">reset</button>
+      </div>
+
+      <details class="fmt-details">
+        <summary>Дополнительно (кодовая страница, плотность, сон, online)</summary>
+        <div class="fmt-group">
+          <span class="fmt-label">Кодовая страница</span>
+          <select id="codePage"><option value="46">CP1251 (46)</option><option value="17">CP866 (17)</option></select>
+          <button id="btnCodePage">setCodePage</button>
+          <label class="fmt-inline">Charset <input id="charset" type="number" min="0" max="15" value="0"></label>
+          <button id="btnCharset">setCharset</button>
+        </div>
+        <div class="fmt-group">
+          <span class="fmt-label">Штрихкод</span>
+          <label class="fmt-inline">Высота <input id="barcodeHeight" type="number" min="1" max="255" value="50"></label>
+          <button id="btnBarcodeHeight">setBarcodeHeight</button>
+          <span class="hint">Высота действует на последующие штрихкоды (сейчас они в отдельной вкладке).</span>
+        </div>
+        <div class="fmt-group">
+          <span class="fmt-label">Плотность</span>
+          <label class="fmt-inline">Density <input id="printDensity" type="number" min="0" max="31" value="10"></label>
+          <label class="fmt-inline">Break <input id="printBreak" type="number" min="0" max="7" value="2"></label>
+          <button id="btnPrintDensity">setPrintDensity</button>
+        </div>
+        <div class="fmt-group">
+          <span class="fmt-label">Нагрев</span>
+          <label class="fmt-inline">Dots <input id="heatDots" type="number" min="0" max="255" value="11"></label>
+          <label class="fmt-inline">Time <input id="heatTime" type="number" min="0" max="255" value="120"></label>
+          <label class="fmt-inline">Interval <input id="heatInterval" type="number" min="0" max="255" value="40"></label>
+          <button id="btnHeatConfig">setHeatConfig</button>
+        </div>
+        <div class="fmt-group">
+          <span class="fmt-label">Питание</span>
+          <label class="fmt-inline">Секунд <input id="sleepSeconds" type="number" min="0" max="65535" value="30"></label>
+          <button id="btnSleepAfter">sleepAfter</button>
+          <button class="tagbtn" data-tag="[sleep]">sleep</button>
+          <button class="tagbtn" data-tag="[wake]">wake</button>
+          <button class="tagbtn" data-tag="[online]">online</button>
+          <button class="tagbtn" data-tag="[offline]">offline</button>
+        </div>
+      </details>
+
+      <details class="fmt-details">
+        <summary>Справка по тегам</summary>
+        <div class="tag-help">
+          <p>Теги выполняются последовательно, как вызовы методов библиотеки. Закрывающие теги не нужны. Регистр команд не важен.</p>
+          <ul>
+            <li><code>[setSize,S|M|L]</code> — размер: S обычный, M двойная высота, L двойная ширина и высота.</li>
+            <li><code>[setFont,A|B]</code> — шрифт A или B.</li>
+            <li><code>[justify,L|C|R]</code> — выравнивание слева/по центру/справа.</li>
+            <li><code>[boldOn]</code>, <code>[boldOff]</code> — жирный.</li>
+            <li><code>[underlineOn]</code>, <code>[underlineOn,2]</code>, <code>[underlineOff]</code> — подчёркивание 1/2 px.</li>
+            <li><code>[inverseOn]</code>, <code>[inverseOff]</code> — инверсия.</li>
+            <li><code>[doubleWidthOn]</code>, <code>[doubleWidthOff]</code> — двойная ширина.</li>
+            <li><code>[doubleHeightOn]</code>, <code>[doubleHeightOff]</code> — двойная высота.</li>
+            <li><code>[strikeOn]</code>, <code>[strikeOff]</code> — зачёркивание.</li>
+            <li><code>[upsideDownOn]</code>, <code>[upsideDownOff]</code> — перевёрнутый текст.</li>
+            <li><code>[setLineHeight,24..255]</code> — межстрочный интервал в точках (по умолчанию 30).</li>
+            <li><code>[setCharSpacing,0..255]</code> — дополнительный интервал между символами.</li>
+            <li><code>[tab]</code> — табуляция.</li>
+            <li><code>[feed,0..255]</code> — подача строк; <code>[feedRows,0..255]</code> — подача в точках.</li>
+            <li><code>[setDefault]</code> — сброс форматирования (кодовую страницу не меняет).</li>
+            <li><code>[reset]</code> — полный сброс задания и возврат к CP1251.</li>
+            <li><code>[setCodePage,46|17]</code> — 46 = CP1251, 17 = CP866; другие значения только для латиницы.</li>
+            <li><code>[setCharset,0..15]</code> — таблица символов ESC/POS (конвертацию кириллицы не меняет).</li>
+            <li><code>[setBarcodeHeight,1..255]</code> — высота последующих штрихкодов.</li>
+            <li><code>[setPrintDensity,0..31,0..7]</code> — плотность и пауза (ESC/POS DC2 #).</li>
+            <li><code>[setHeatConfig,dots,time,interval]</code> — параметры нагрева ESC 7.</li>
+            <li><code>[sleepAfter,N]</code>, <code>[sleep]</code>, <code>[wake]</code> — сон/пробуждение.</li>
+            <li><code>[online]</code>, <code>[offline]</code> — перевод принтера online/offline.</li>
+          </ul>
+          <p>Неизвестный тег печатается как обычный текст. Чтобы напечатать литерал <code>[</code>, используйте <code>[[</code>.</p>
+          <pre>[setSize,L]ЗАГОЛОВОК
+[setSize,M]Обычный текст, [boldOn]жирное слово[boldOff] и [underlineOn]подчёркнутое[underlineOff].
+[justify,R]Итого: 1000 ₽
+[justify,L][inverseOn]Инверсия[inverseOff]</pre>
+          <p>Штрихкоды, изображения, тестовая страница и проверка бумаги — отдельные вкладки/API, не текстовые теги.</p>
+        </div>
+      </details>
     </div>
 
     <div class="card">
@@ -117,7 +272,7 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
         <button id="tplDel" disabled>Удалить</button>
         <button id="btnTplRefresh">Обновить</button>
       </div>
-      <div class="hint" id="tplHint">Шаблоны хранятся на SD-карте (templates.json) и доступны всем устройствам.</div>
+      <div class="hint" id="tplHint">Шаблоны хранятся на SD-карте (templates.json) вместе с тегами и доступны всем устройствам.</div>
     </div>
   </section>
 
@@ -383,16 +538,69 @@ async function refreshStatus() {
 function updateCharCount() { $('#charCount').textContent = $('#text').value.length; }
 $('#text').addEventListener('input', updateCharCount);
 
+function insertTag(tag) {
+  const ta = $('#text');
+  const start = (ta.selectionStart !== null && ta.selectionStart !== undefined)
+    ? ta.selectionStart : ta.value.length;
+  ta.value = ta.value.slice(0, start) + tag + ta.value.slice(start);
+  const pos = start + tag.length;
+  ta.selectionStart = ta.selectionEnd = pos;
+  ta.focus();
+  updateCharCount();
+}
+
+function intVal(id, min, max, def) {
+  let n = parseInt($(id).value, 10);
+  if (!isFinite(n)) n = def;
+  if (n < min) n = min;
+  if (n > max) n = max;
+  return n;
+}
+
+$$('.tagbtn[data-tag]').forEach((b) => {
+  b.addEventListener('click', () => insertTag(b.dataset.tag));
+});
+
+$('#btnLineHeight').addEventListener('click', () => {
+  insertTag('[setLineHeight,' + intVal('#lineHeight', 24, 255, 30) + ']');
+});
+$('#btnCharSpacing').addEventListener('click', () => {
+  insertTag('[setCharSpacing,' + intVal('#charSpacing', 0, 255, 0) + ']');
+});
+$('#btnFeedTag').addEventListener('click', () => {
+  insertTag('[feed,' + intVal('#feedTag', 0, 255, 1) + ']');
+});
+$('#btnFeedRows').addEventListener('click', () => {
+  insertTag('[feedRows,' + intVal('#feedRowsTag', 0, 255, 20) + ']');
+});
+$('#btnCodePage').addEventListener('click', () => {
+  insertTag('[setCodePage,' + $('#codePage').value + ']');
+});
+$('#btnCharset').addEventListener('click', () => {
+  insertTag('[setCharset,' + intVal('#charset', 0, 15, 0) + ']');
+});
+$('#btnBarcodeHeight').addEventListener('click', () => {
+  insertTag('[setBarcodeHeight,' + intVal('#barcodeHeight', 1, 255, 50) + ']');
+});
+$('#btnPrintDensity').addEventListener('click', () => {
+  insertTag('[setPrintDensity,' + intVal('#printDensity', 0, 31, 10) + ',' +
+    intVal('#printBreak', 0, 7, 2) + ']');
+});
+$('#btnHeatConfig').addEventListener('click', () => {
+  insertTag('[setHeatConfig,' + intVal('#heatDots', 0, 255, 11) + ',' +
+    intVal('#heatTime', 0, 255, 120) + ',' +
+    intVal('#heatInterval', 0, 255, 40) + ']');
+});
+$('#btnSleepAfter').addEventListener('click', () => {
+  insertTag('[sleepAfter,' + intVal('#sleepSeconds', 0, 65535, 30) + ']');
+});
+
 async function printText() {
   const text = $('#text').value;
   if (!text.trim()) return toast('Введите текст', false);
   const payload = {
     text,
-    size: $('#size').value,
-    align: $('#align').value,
-    bold: $('#bold').checked,
-    underline: $('#underline').checked,
-    feed: Number($('#feed').value)
+    feed: Number($('#feed').value) || 0
   };
   const btn = $('#btnText');
   btn.disabled = true;
@@ -428,7 +636,7 @@ function setTemplateUi(ok) {
   const hint = $('#tplHint');
   if (hint) {
     hint.textContent = ok
-      ? 'Шаблоны хранятся на SD-карте (templates.json) и доступны всем устройствам.'
+      ? 'Шаблоны хранятся на SD-карте (templates.json) вместе с тегами и доступны всем устройствам.'
       : 'SD-карта не подключена — шаблоны недоступны.';
   }
 }
