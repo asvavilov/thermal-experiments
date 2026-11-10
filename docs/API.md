@@ -17,6 +17,7 @@
 - Ошибка: HTTP 400/404/413 и `{"ok": false, "error": "..."}`.
 - `OPTIONS` на любой путь возвращает 204 (CORS preflight).
 - Текстовые поля — UTF-8; прошивка сама конвертирует в CP1251.
+- Текстовые файлы на SD — UTF-8 без нулевых байтов.
 - Размер изображения: ширина ровно 384 точки (48 байт на строку),
   высота до 2000 строк.
 
@@ -284,8 +285,9 @@ GET /api/print?qr=https://example.com&module=4
 SD-эндпоинты возвращают `503 sd not mounted`.
 
 Файлы: `.bin`/`.raw` — 1-битное изображение с заголовком, `.prn` — сырой
-ESC/POS. Имена — ASCII, до 48 символов. Лимит загрузки — 512 КБ.
-Карта — FAT32, рекомендуется 4–32 ГБ.
+ESC/POS, `.txt`/`.md`/`.csv`/`.log` — текст UTF-8 с тегами
+форматирования. Имена — ASCII, до 48 символов. Лимит загрузки — 512 КБ,
+текстового файла — 64 КБ. Карта — FAT32, рекомендуется 4–32 ГБ.
 
 > ESP32 не декодирует JPEG/PNG. Изображение конвертируется в браузере
 > (вкладка «Фото» → «Сохранить на SD») или через `convert.py`, после чего
@@ -302,45 +304,54 @@ ESC/POS. Имена — ASCII, до 48 символов. Лимит загруз
   "free": 8347024,
   "cardType": 3,
   "files": [
-    {"name": "image.raw", "size": 36804, "raw": false, "valid": true,
+    {"name": "image.raw", "size": 36804, "kind": "image", "valid": true,
      "width": 363, "height": 800},
-    {"name": "test.prn", "size": 16, "raw": true, "valid": true}
+    {"name": "test.prn", "size": 16, "kind": "raw", "valid": true},
+    {"name": "note.txt", "size": 342, "kind": "text", "valid": true}
   ]
 }
 ```
 
-`valid` = `false` — файл с неправильным заголовком или короткий; печать
-такого файла будет отклонена.
+`kind` — `image`, `raw` или `text`. Для изображений `valid` = `false`
+означает неправильный заголовок или короткий файл; печать такого файла
+будет отклонена.
 
 ### GET /api/sd/file?name=...
 
-Отдаёт файл как `application/octet-stream` — для предпросмотра в браузере
-или скачивания.
+Отдаёт файл для предпросмотра в браузере или скачивания. Текстовые файлы
+отдаются как `text/plain; charset=utf-8`, остальные — как
+`application/octet-stream`.
 
 ```
 GET /api/sd/file?name=image.raw
-GET /api/sd/file?name=image.raw&download=1
+GET /api/sd/file?name=note.txt
+GET /api/sd/file?name=note.txt&download=1
 ```
 
 ### POST /api/sd/upload
 
-`multipart/form-data`, поле `file`. Имя берётся из `filename` части.
+`multipart/form-data`, поле `file`. Тип определяется по расширению из
+`filename`. Имя приводится к ASCII: кириллица транслитерируется,
+недопустимые символы заменяются на `_`, известное расширение
+сохраняется.
 
 ```bash
 curl.exe -X POST http://thermal.local/api/sd/upload -F "file=@image.raw"
+curl.exe -X POST http://thermal.local/api/sd/upload -F "file=@note.txt"
 ```
 
-Для `.bin`/`.raw` проверяется заголовок и точный размер; при ошибке файл
-удаляется. Ответ:
+Для `.bin`/`.raw` проверяется заголовок и точный размер. Для текстовых
+файлов проверяется отсутствие нулевых байтов и лимит 64 КБ. При ошибке
+временный файл удаляется, старый не страдает. Ответ:
 
 ```json
-{"ok": true, "name": "image.raw", "size": 36804, "raw": false}
+{"ok": true, "name": "note.txt", "size": 342, "kind": "text"}
 ```
 
 ### POST /api/sd/delete
 
 ```json
-{"name": "image.raw"}
+{"name": "note.txt"}
 ```
 
 Удаляет файл. Ответ: `{"ok":true,"message":"deleted"}`.
@@ -348,13 +359,18 @@ curl.exe -X POST http://thermal.local/api/sd/upload -F "file=@image.raw"
 ### POST /api/sd/print
 
 ```json
-{"name": "image.raw", "feed": 2}
+{"name": "note.txt", "feed": 2}
 ```
 
 - `.bin`/`.raw` — печатается как изображение, `feed` — строк после;
-- `.prn` — сырой ESC/POS, `feed` игнорируется (файл сам управляет).
+- `.prn` — сырой ESC/POS, `feed` игнорируется (файл сам управляет);
+- `.txt`/`.md`/`.csv`/`.log` — текст с тегами, `feed` — строк после.
 
-Ответ: `{"ok":true,"name":"image.raw","bytes":36804}`.
+Текст читается с карты потоково, поэтому файл не занимает всю RAM и
+может быть больше лимита `/api/text` (до 64 КБ). Теги выполняются
+последовательно, как в `POST /api/text`; см. [`TEXT.md`](TEXT.md).
+
+Ответ: `{"ok":true,"name":"note.txt","kind":"text","bytes":342}`.
 
 ### POST /api/sd/remount
 
@@ -363,52 +379,6 @@ curl.exe -X POST http://thermal.local/api/sd/upload -F "file=@image.raw"
 ```json
 {"ok": true, "mounted": true, "total": 8388608, "used": 0}
 ```
-
-## Шаблоны текста на SD
-
-Шаблоны из вкладки «Текст» хранятся в `/templates.json` на SD. Без карты
-эндпоинты возвращают `503 sd not mounted`.
-
-Лимиты: до 50 шаблонов, имя 1–48 байт (без управляющих символов), текст
-до 4096 байт, файл до 48 КБ. Имя — ключ JSON, поэтому кириллица
-допустима. Запись атомарная через `/templates.tmp`.
-
-### GET /api/templates
-
-```json
-{
-  "ok": true,
-  "mounted": true,
-  "templates": {
-    "Заметка": "Привет с SD",
-    "Список": "молоко\nхлеб"
-  }
-}
-```
-
-### POST /api/templates
-
-Сохраняет или перезаписывает шаблон.
-
-```json
-{"name": "Заметка", "text": "Привет с SD"}
-```
-
-Ответ: `{"ok":true,"name":"Заметка","count":2}`.
-
-```bash
-curl.exe -X POST http://thermal.local/api/templates \
-  -H "Content-Type: application/json" \
-  -d "{\"name\":\"Note\",\"text\":\"Hello\"}"
-```
-
-### POST /api/templates/delete
-
-```json
-{"name": "Заметка"}
-```
-
-Ответ: `{"ok":true,"message":"deleted"}`.
 
 ## Примеры
 
@@ -454,17 +424,18 @@ curl.exe "http://thermal.local/api/print?text=Hello&size=L&align=C"
 curl.exe -X POST http://thermal.local/api/text -H "Content-Type: application/json" -d "{\"text\":\"Hello\"}"
 curl.exe -X POST http://thermal.local/api/bitmap -F "file=@image.bin"
 curl.exe -X POST http://thermal.local/api/sd/upload -F "file=@image.raw"
-curl.exe -X POST http://thermal.local/api/sd/print -H "Content-Type: application/json" -d "{\"name\":\"image.raw\",\"feed\":2}"
-curl.exe "http://thermal.local/api/sd/file?name=image.raw&download=1" -o image.raw
+curl.exe -X POST http://thermal.local/api/sd/upload -F "file=@note.txt"
+curl.exe -X POST http://thermal.local/api/sd/print -H "Content-Type: application/json" -d "{\"name\":\"note.txt\",\"feed\":2}"
+curl.exe "http://thermal.local/api/sd/file?name=note.txt&download=1" -o note.txt
 ```
 
 ## Коды ошибок
 
 | Код | Когда |
 |---|---|
-| 400 | Неверный JSON, пустой текст, неподдерживаемый тип штрихкода, плохие размеры изображения, нет файла, плохое имя шаблона |
-| 404 | Неизвестный путь / файл или шаблон не найден |
-| 413 | Текст/данные/шаблоны больше лимита |
-| 500 | Не удалось удалить файл с SD, прочитать или записать `templates.json` |
+| 400 | Неверный JSON, пустой текст, неподдерживаемый тип штрихкода, плохие размеры изображения, нет файла, неподдерживаемое расширение, файл не является текстом |
+| 404 | Неизвестный путь / файл не найден |
+| 413 | Текст/данные/файл больше лимита |
+| 500 | Не удалось удалить файл с SD или записать его |
 | 503 | Принтер не готов (DTR не отпустил линию за 30 с) или SD-карта не смонтирована |
 | 200 | Успех (в том числе `answered:false` у статуса принтера) |

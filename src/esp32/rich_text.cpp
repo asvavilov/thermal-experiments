@@ -194,89 +194,158 @@ TagResult execTag(const String& tag, uint8_t& codePage) {
 
 }  // namespace
 
-bool printerRichText(const String& markup, uint8_t feed, String& error) {
+bool RichTextPrinter::begin(String& error) {
   error = "";
+  pending_ = "";
+  segment_ = "";
+  codePage_ = 46;
+  printed_ = false;
+  lastWasFeed_ = false;
+  lastChar_ = 0;
+  pending_.reserve(MAX_RICH_TAG_LEN + 8);
+  segment_.reserve(512);
+
   if (!printerBeginJob()) {
     error = "printer not ready";
     return false;
   }
+  return true;
+}
 
-  uint8_t codePage = 46;
-  String segment;
-  segment.reserve(128);
-  bool printed = false;
-  bool lastWasFeed = false;
+bool RichTextPrinter::flushSegment(bool force, String& error) {
+  if (segment_.length() == 0) return true;
 
-  auto flush = [&]() -> bool {
-    if (segment.length() == 0) return true;
-    const String encoded = printerEncodeText(segment, codePage);
-    if (!printerWrite((const uint8_t*)encoded.c_str(), encoded.length())) {
-      return false;
+  size_t cut = segment_.length();
+  if (!force && cut > 0) {
+    // Не разрезаем многобайтовый UTF-8 символ между частями.
+    size_t lead = cut;
+    while (lead > 0 && ((uint8_t)segment_[lead - 1] & 0xC0) == 0x80) lead--;
+    if (lead > 0) {
+      const uint8_t b = (uint8_t)segment_[lead - 1];
+      size_t need = 1;
+      if ((b & 0xE0) == 0xC0) need = 2;
+      else if ((b & 0xF0) == 0xE0) need = 3;
+      else if ((b & 0xF8) == 0xF0) need = 4;
+      if (cut - (lead - 1) < need) cut = lead - 1;
     }
-    printed = true;
-    segment = "";
-    return true;
-  };
+  }
+  if (cut == 0) return true;
 
+  const String part = segment_.substring(0, cut);
+  const String encoded = printerEncodeText(part, codePage_);
+  if (!printerWrite((const uint8_t*)encoded.c_str(), encoded.length())) {
+    error = "printer not ready";
+    return false;
+  }
+  printed_ = true;
+
+  if (cut == segment_.length()) {
+    segment_ = "";
+  } else {
+    segment_.remove(0, cut);
+  }
+  return true;
+}
+
+bool RichTextPrinter::process(String& error) {
   size_t i = 0;
-  while (i < markup.length()) {
-    const char c = markup[i];
+  while (i < pending_.length()) {
+    if (segment_.length() >= 512 && !flushSegment(false, error)) return false;
+
+    const char c = pending_[i];
     if (c == '\r') {
       i++;
       continue;
     }
 
     if (c != '[') {
-      segment += c;
-      lastWasFeed = false;
+      segment_ += c;
+      lastChar_ = c;
+      lastWasFeed_ = false;
       i++;
       continue;
     }
 
     // [[ — литерал [
-    if (i + 1 < markup.length() && markup[i + 1] == '[') {
-      segment += '[';
+    if (i + 1 >= pending_.length()) break;
+    if (pending_[i + 1] == '[') {
+      segment_ += '[';
+      lastChar_ = '[';
+      lastWasFeed_ = false;
       i += 2;
       continue;
     }
 
-    const int end = markup.indexOf(']', i + 1);
+    const int end = pending_.indexOf(']', (unsigned int)(i + 1));
     if (end < 0) {
-      segment += '[';
+      // Слишком длинная незакрытая скобка — считаем её обычным текстом.
+      if (pending_.length() - i > MAX_RICH_TAG_LEN) {
+        segment_ += '[';
+        lastChar_ = '[';
+        lastWasFeed_ = false;
+        i++;
+        continue;
+      }
+      break;
+    }
+
+    if ((size_t)(end - i - 1) > MAX_RICH_TAG_LEN) {
+      segment_ += '[';
+      lastChar_ = '[';
+      lastWasFeed_ = false;
       i++;
       continue;
     }
 
-    if (!flush()) {
-      error = "printer not ready";
-      return false;
-    }
+    if (!flushSegment(true, error)) return false;
 
-    String tag = markup.substring(i + 1, end);
+    String tag = pending_.substring(i + 1, end);
     tag.trim();
     String cmd = argAt(tag, 0);
     cmd.toLowerCase();
-    const TagResult result = execTag(tag, codePage);
+    const TagResult result = execTag(tag, codePage_);
     if (result == TagResult::Error) {
       error = "printer not ready";
       return false;
     }
     if (result == TagResult::Unknown) {
-      segment += markup.substring(i, end + 1);
-      lastWasFeed = false;
+      segment_ += pending_.substring(i, end + 1);
+      lastChar_ = ']';
+      lastWasFeed_ = false;
     } else {
-      lastWasFeed = (cmd == "feed" || cmd == "feedrows");
+      lastWasFeed_ = (cmd == "feed" || cmd == "feedrows");
     }
     i = (size_t)end + 1;
   }
 
-  if (!flush()) {
-    error = "printer not ready";
+  if (i > 0) pending_.remove(0, (unsigned int)i);
+  return true;
+}
+
+bool RichTextPrinter::write(const char* data, size_t len, String& error) {
+  if (!data || len == 0) return true;
+  pending_.reserve(pending_.length() + len + 1);
+  if (!pending_.concat(data, (unsigned int)len)) {
+    error = "out of memory";
     return false;
   }
+  return process(error);
+}
 
-  if (printed && !lastWasFeed && markup.length() > 0 &&
-      markup[markup.length() - 1] != '\n') {
+bool RichTextPrinter::end(uint8_t feed, String& error) {
+  // Незакрытый тег в конце печатаем как обычный текст.
+  for (size_t i = 0; i < pending_.length(); i++) {
+    const char c = pending_[i];
+    if (c == '\r') continue;
+    segment_ += c;
+    lastChar_ = c;
+    lastWasFeed_ = false;
+  }
+  pending_ = "";
+
+  if (!flushSegment(true, error)) return false;
+
+  if (printed_ && !lastWasFeed_ && lastChar_ != '\n') {
     const uint8_t nl = '\n';
     if (!printerWrite(&nl, 1)) {
       error = "printer not ready";
@@ -289,4 +358,11 @@ bool printerRichText(const String& markup, uint8_t feed, String& error) {
     return false;
   }
   return true;
+}
+
+bool printerRichText(const String& markup, uint8_t feed, String& error) {
+  RichTextPrinter printer;
+  if (!printer.begin(error)) return false;
+  if (!printer.write(markup.c_str(), markup.length(), error)) return false;
+  return printer.end(feed, error);
 }

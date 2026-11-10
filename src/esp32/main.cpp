@@ -11,7 +11,6 @@
 #include "printer.h"
 #include "rich_text.h"
 #include "sd_store.h"
-#include "template_store.h"
 #include "web_ui.h"
 
 WebServer server(80);
@@ -57,7 +56,7 @@ struct SdUploadJob {
   uint8_t header[4] = {0};
   uint8_t headerCount = 0;
   bool headerChecked = false;
-  bool raw = false;
+  SdFileKind kind = SdFileKind::Invalid;
 };
 
 BitmapJob bmp;
@@ -214,9 +213,6 @@ void handleInfo() {
   endpoints.add("POST /api/sd/delete");
   endpoints.add("POST /api/sd/print");
   endpoints.add("POST /api/sd/remount");
-  endpoints.add("GET  /api/templates");
-  endpoints.add("POST /api/templates");
-  endpoints.add("POST /api/templates/delete");
   sendJson(200, doc);
 }
 
@@ -605,14 +601,14 @@ void handleSdList() {
         if (slash >= 0) name = name.substring(slash + 1);
 
         if (!entry.isDirectory() && sdIsAllowedName(name)) {
+          const SdFileKind kind = sdFileKind(name);
           JsonObject item = files.add<JsonObject>();
           item["name"] = name;
           item["size"] = (uint32_t)entry.size();
-          item["raw"] = sdIsRawFile(name);
+          item["kind"] = sdKindName(kind);
+          item["valid"] = true;
 
-          if (sdIsRawFile(name)) {
-            item["valid"] = true;
-          } else {
+          if (kind == SdFileKind::Image) {
             uint16_t width = 0;
             uint16_t height = 0;
             uint32_t dataBytes = 0;
@@ -648,7 +644,9 @@ void handleSdFile() {
     server.sendHeader("Content-Disposition",
                       String("attachment; filename=\"") + name + "\"");
   }
-  server.streamFile(file, "application/octet-stream");
+  const bool text = sdFileKind(name) == SdFileKind::Text;
+  server.streamFile(file, text ? "text/plain; charset=utf-8"
+                              : "application/octet-stream");
   file.close();
 }
 
@@ -661,12 +659,19 @@ void handleSdUpload() {
 
     if (!sdMounted()) return sdSetError("sd not mounted");
 
-    const String name = sdSanitizeName(upload.filename);
+    const String rawName = upload.filename;
+    String name = sdSanitizeName(rawName);
+    // Имя без расширения: если браузер сообщил text/*, сохраняем как .txt.
+    if (rawName.lastIndexOf('.') < 0 && upload.type.startsWith("text/")) {
+      const int dot = name.lastIndexOf('.');
+      if (dot >= 0) name = name.substring(0, dot) + ".txt";
+    }
     if (!sdIsAllowedName(name)) return sdSetError("bad file name");
 
     sdJob.name = name;
     sdJob.tmpName = name + ".tmp";
-    sdJob.raw = sdIsRawFile(name);
+    sdJob.kind = sdFileKind(name);
+    if (sdJob.kind == SdFileKind::Invalid) return sdSetError("bad file type");
     sdJob.file = SD.open(sdPath(sdJob.tmpName), FILE_WRITE);
     if (!sdJob.file) {
       sdSetError("cannot create file");
@@ -685,7 +690,16 @@ void handleSdUpload() {
       return sdSetError("file too large");
     }
 
-    if (!sdJob.raw && !sdJob.headerChecked) {
+    if (sdJob.kind == SdFileKind::Text) {
+      if ((uint32_t)sdJob.bytes + upload.currentSize > MAX_SD_TEXT_BYTES) {
+        return sdSetError("text file too large");
+      }
+      for (size_t i = 0; i < upload.currentSize; i++) {
+        if (upload.buf[i] == 0) return sdSetError("file is not text");
+      }
+    }
+
+    if (sdJob.kind == SdFileKind::Image && !sdJob.headerChecked) {
       size_t i = 0;
       while (sdJob.headerCount < 4 && i < upload.currentSize) {
         sdJob.header[sdJob.headerCount++] = upload.buf[i++];
@@ -716,7 +730,7 @@ void handleSdUpload() {
     if (!sdJob.error) {
       if (sdJob.bytes == 0) {
         sdSetError("empty file");
-      } else if (!sdJob.raw) {
+      } else if (sdJob.kind == SdFileKind::Image) {
         if (!sdJob.headerChecked) {
           sdSetError("short header");
         } else if (sdJob.bytes != sdJob.expected) {
@@ -765,7 +779,7 @@ void handleSdUploadDone() {
   doc["ok"] = true;
   doc["name"] = sdJob.name;
   doc["size"] = sdJob.bytes;
-  doc["raw"] = sdJob.raw;
+  doc["kind"] = sdKindName(sdJob.kind);
   sdJob.completed = false;
   sendJson(200, doc);
 }
@@ -806,9 +820,15 @@ void handleSdPrint() {
   if (feed > 20) feed = 20;
 
   String error;
-  const bool ok = sdIsRawFile(name)
-                      ? sdPrintRaw(name, error)
-                      : sdPrintBitmap(name, (uint8_t)feed, error);
+  const SdFileKind kind = sdFileKind(name);
+  bool ok = false;
+  if (kind == SdFileKind::Raw) {
+    ok = sdPrintRaw(name, error);
+  } else if (kind == SdFileKind::Text) {
+    ok = sdPrintText(name, (uint8_t)feed, error);
+  } else {
+    ok = sdPrintBitmap(name, (uint8_t)feed, error);
+  }
   if (!ok) {
     const bool notReady = error == "printer not ready";
     return sendError(notReady ? 503 : 400, error.c_str());
@@ -817,6 +837,7 @@ void handleSdPrint() {
   JsonDocument out;
   out["ok"] = true;
   out["name"] = name;
+  out["kind"] = sdKindName(kind);
   out["bytes"] = (uint32_t)sdFileSize(name);
   sendJson(200, out);
 }
@@ -831,96 +852,6 @@ void handleSdRemount() {
   doc["total"] = (double)sdTotalBytes();
   doc["used"] = (double)sdUsedBytes();
   sendJson(ok ? 200 : 503, doc);
-}
-
-// ---------------------------------------------------------------------------
-// HTTP: шаблоны текста на SD
-// ---------------------------------------------------------------------------
-
-bool validTemplateName(const String& name) {
-  if (name.length() == 0 || name.length() > MAX_TEMPLATE_NAME_LEN) return false;
-  for (size_t i = 0; i < name.length(); i++) {
-    const unsigned char c = (unsigned char)name[i];
-    if (c < 0x20 || c == 0x7F) return false;
-  }
-  return true;
-}
-
-String templateNameFrom(JsonDocument& doc) {
-  String name = doc["name"].is<const char*>() ? doc["name"].as<String>() : String();
-  name.trim();
-  return name;
-}
-
-void handleTemplatesList() {
-  if (!sdMounted()) return sendError(503, "sd not mounted");
-
-  JsonDocument doc;
-  if (!templatesLoad(doc)) return sendError(500, "templates read failed");
-
-  String out;
-  out.reserve((size_t)measureJson(doc) + 64);
-  out = "{\"ok\":true,\"mounted\":true,\"templates\":";
-  serializeJson(doc, out);
-  out += "}";
-
-  server.sendHeader("Cache-Control", "no-store");
-  server.send(200, "application/json; charset=utf-8", out);
-}
-
-void handleTemplateSave() {
-  JsonDocument req;
-  String body;
-  if (!parseJsonBody(req, body)) return sendError(400, "invalid json");
-
-  const String name = templateNameFrom(req);
-  const String text = req["text"].is<const char*>() ? req["text"].as<String>() : String();
-
-  if (!validTemplateName(name)) return sendError(400, "bad template name");
-  if (text.length() > MAX_TEMPLATE_TEXT_LEN) return sendError(413, "text too long");
-  if (!sdMounted()) return sendError(503, "sd not mounted");
-
-  JsonDocument doc;
-  if (!templatesLoad(doc)) return sendError(500, "templates read failed");
-
-  JsonObject templates = doc.as<JsonObject>();
-  JsonObjectConst current = doc.as<JsonObjectConst>();
-  if (!current[name].is<const char*>() && templates.size() >= MAX_TEMPLATES) {
-    return sendError(413, "too many templates");
-  }
-
-  templates[name] = text;
-  if (measureJson(doc) > MAX_TEMPLATES_FILE) {
-    return sendError(413, "templates too large");
-  }
-  if (!templatesSave(doc)) return sendError(500, "templates write failed");
-
-  JsonDocument out;
-  out["ok"] = true;
-  out["name"] = name;
-  out["count"] = templates.size();
-  sendJson(200, out);
-}
-
-void handleTemplateDelete() {
-  JsonDocument req;
-  String body;
-  if (!parseJsonBody(req, body)) return sendError(400, "invalid json");
-
-  const String name = templateNameFrom(req);
-  if (!validTemplateName(name)) return sendError(400, "bad template name");
-  if (!sdMounted()) return sendError(503, "sd not mounted");
-
-  JsonDocument doc;
-  if (!templatesLoad(doc)) return sendError(500, "templates read failed");
-
-  JsonObject templates = doc.as<JsonObject>();
-  JsonObjectConst current = doc.as<JsonObjectConst>();
-  if (!current[name].is<const char*>()) return sendError(404, "template not found");
-
-  templates.remove(name);
-  if (!templatesSave(doc)) return sendError(500, "templates write failed");
-  sendOk("deleted");
 }
 
 // ---------------------------------------------------------------------------
@@ -1026,9 +957,6 @@ void setupWeb() {
   server.on("/api/sd/delete", HTTP_POST, handleSdDelete);
   server.on("/api/sd/print", HTTP_POST, handleSdPrint);
   server.on("/api/sd/remount", HTTP_POST, handleSdRemount);
-  server.on("/api/templates", HTTP_GET, handleTemplatesList);
-  server.on("/api/templates", HTTP_POST, handleTemplateSave);
-  server.on("/api/templates/delete", HTTP_POST, handleTemplateDelete);
   server.onNotFound(handleNotFound);
   server.begin();
   Serial.println("[http] server started");

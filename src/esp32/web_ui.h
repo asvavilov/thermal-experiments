@@ -68,6 +68,7 @@ button.danger{background:#2a1618;border-color:#5a2428;color:#ffb3b0}
 .mono,pre{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.78rem;line-height:1.5;white-space:pre-wrap;word-break:break-word;background:#0b0e12;border:1px solid var(--line);border-radius:10px;padding:10px;overflow:auto;color:#c8d3df}
 .preview-wrap{margin-top:14px;display:flex;justify-content:center}
 canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-rendering:pixelated;background:#fff;border:1px solid var(--line);border-radius:10px}
+.sd-text{max-height:18rem;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#0b0e12;border:1px solid var(--line);border-radius:10px;padding:10px;font-size:.8rem;color:#c8d3df;margin:0}
 .sd-list{display:flex;flex-direction:column;gap:8px}
 .sd-item{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px}
 .sd-info{flex:1 1 100%;min-width:0}
@@ -259,21 +260,6 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
         </div>
       </details>
     </div>
-
-    <div class="card">
-      <h3>Шаблоны</h3>
-      <div class="row">
-        <input id="tplName" placeholder="Название шаблона">
-        <button id="tplSave" disabled>Сохранить</button>
-      </div>
-      <div class="row">
-        <select id="tplList" disabled><option value="">— выберите —</option></select>
-        <button id="tplLoad" disabled>Загрузить</button>
-        <button id="tplDel" disabled>Удалить</button>
-        <button id="btnTplRefresh">Обновить</button>
-      </div>
-      <div class="hint" id="tplHint">Шаблоны хранятся на SD-карте (templates.json) вместе с тегами и доступны всем устройствам.</div>
-    </div>
   </section>
 
   <section class="pane" id="pane-image">
@@ -350,11 +336,11 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
     <div class="card">
       <h3>Загрузить файл</h3>
       <div class="grid">
-        <label>Файл (.bin, .raw, .prn)<input id="sdUploadFile" type="file" accept=".bin,.raw,.prn,application/octet-stream"></label>
+        <label>Файл (.bin, .raw, .prn, .txt, .md, .csv, .log)<input id="sdUploadFile" type="file" accept=".bin,.raw,.prn,.txt,.md,.csv,.log,application/octet-stream,text/plain"></label>
         <label>Имя на карте<input id="sdUploadName" placeholder="как в файле"></label>
       </div>
       <div class="actions"><button class="primary" id="btnSdUpload">Загрузить</button></div>
-      <div class="hint">.bin/.raw — 1-битное изображение с заголовком; .prn — сырой ESC/POS.</div>
+      <div class="hint">.bin/.raw — 1-битное изображение с заголовком; .prn — сырой ESC/POS; .txt/.md/.csv/.log — текст с тегами форматирования.</div>
     </div>
 
     <div class="card">
@@ -365,7 +351,8 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
     <div class="card">
       <h3>Просмотр</h3>
       <div class="preview-wrap"><canvas id="sdPreview" width="384" height="200"></canvas></div>
-      <div class="hint" id="sdPreviewInfo">Нажмите «Просмотр» у файла .bin/.raw.</div>
+      <pre id="sdTextPreview" class="sd-text" hidden></pre>
+      <div class="hint" id="sdPreviewInfo">Нажмите «Просмотр» у файла изображения или текста.</div>
     </div>
   </section>
 
@@ -430,11 +417,8 @@ GET  /api/sd/list                список файлов на SD
 GET  /api/sd/file?name=...       скачать/посмотреть файл
 POST /api/sd/upload              multipart file: загрузка на SD
 POST /api/sd/delete              {"name":"..."}
-POST /api/sd/print               {"name":"...","feed":2}
-POST /api/sd/remount             переподключить карту
-GET  /api/templates              шаблоны с SD
-POST /api/templates              {"name":"...","text":"..."}
-POST /api/templates/delete       {"name":"..."}</pre>
+POST /api/sd/print               {"name":"...","feed":2} — изображение, текст или .prn
+POST /api/sd/remount             переподключить карту</pre>
     </div>
     <div class="card">
       <h3>Примеры</h3>
@@ -443,8 +427,8 @@ curl.exe -X POST http://thermal.local/api/text -H "Content-Type: application/jso
 curl.exe -X POST http://thermal.local/api/qr -H "Content-Type: application/json" -d "{\"data\":\"https://example.com\",\"module\":4}"
 curl.exe -X POST http://thermal.local/api/bitmap -F "file=@image.bin"
 curl.exe -X POST http://thermal.local/api/sd/upload -F "file=@image.raw"
-curl.exe -X POST http://thermal.local/api/sd/print -H "Content-Type: application/json" -d "{\"name\":\"image.raw\"}"
-curl.exe -X POST http://thermal.local/api/templates -H "Content-Type: application/json" -d "{\"name\":\"Note\",\"text\":\"Hello\"}"</pre>
+curl.exe -X POST http://thermal.local/api/sd/upload -F "file=@note.txt"
+curl.exe -X POST http://thermal.local/api/sd/print -H "Content-Type: application/json" -d "{\"name\":\"note.txt\"}"</pre>
       <div class="hint">Подробное описание — в <code>docs/API.md</code>.</div>
     </div>
   </section>
@@ -511,7 +495,6 @@ $$('.tab').forEach((btn) => btn.addEventListener('click', () => {
   const name = btn.dataset.tab;
   $$('.pane').forEach((p) => p.classList.toggle('active', p.id === 'pane-' + name));
   if (name === 'sd') refreshSd();
-  if (name === 'text') refreshTemplates();
 }));
 
 /* ---------- статус ---------- */
@@ -622,84 +605,6 @@ async function doFeed(lines) {
 }
 $('#btnFeedTop').addEventListener('click', () => doFeed(3));
 $('#btnFeed').addEventListener('click', () => doFeed(Number($('#feedLines').value) || 3));
-
-/* ---------- шаблоны на SD ---------- */
-let templates = {};
-
-function setTemplateUi(ok) {
-  ['tplSave', 'tplLoad', 'tplDel'].forEach((id) => {
-    const b = document.getElementById(id);
-    if (b) b.disabled = !ok;
-  });
-  const list = $('#tplList');
-  if (list) list.disabled = !ok;
-  const hint = $('#tplHint');
-  if (hint) {
-    hint.textContent = ok
-      ? 'Шаблоны хранятся на SD-карте (templates.json) вместе с тегами и доступны всем устройствам.'
-      : 'SD-карта не подключена — шаблоны недоступны.';
-  }
-}
-
-function renderTemplateList() {
-  const sel = $('#tplList');
-  sel.innerHTML = '<option value="">— выберите —</option>';
-  Object.keys(templates).sort().forEach((k) => {
-    const opt = document.createElement('option');
-    opt.value = k; opt.textContent = k;
-    sel.appendChild(opt);
-  });
-}
-
-async function refreshTemplates() {
-  try {
-    const d = await api('/api/templates');
-    templates = d.templates || {};
-    setTemplateUi(true);
-    renderTemplateList();
-  } catch (e) {
-    templates = {};
-    setTemplateUi(false);
-    renderTemplateList();
-    const hint = $('#tplHint');
-    if (hint) hint.textContent = 'Шаблоны недоступны: ' + e.message;
-  }
-}
-
-$('#tplSave').addEventListener('click', async () => {
-  const name = $('#tplName').value.trim();
-  if (!name) return toast('Введите название шаблона', false);
-  if (templates[name] !== undefined &&
-      !confirm('Шаблон «' + name + '» уже есть. Перезаписать?')) return;
-  try {
-    await jsonPost('/api/templates', { name, text: $('#text').value });
-    toast('Шаблон сохранён на SD');
-    await refreshTemplates();
-    $('#tplList').value = name;
-  } catch (e) { toast(e.message, false); }
-});
-
-$('#tplLoad').addEventListener('click', () => {
-  const name = $('#tplList').value;
-  if (!name) return toast('Выберите шаблон', false);
-  if (templates[name] === undefined) return toast('Шаблон не найден', false);
-  $('#text').value = templates[name];
-  updateCharCount();
-  toast('Шаблон загружен');
-});
-
-$('#tplDel').addEventListener('click', async () => {
-  const name = $('#tplList').value;
-  if (!name) return toast('Выберите шаблон', false);
-  if (!confirm('Удалить шаблон «' + name + '» с SD?')) return;
-  try {
-    await jsonPost('/api/templates/delete', { name });
-    toast('Шаблон удалён');
-    await refreshTemplates();
-  } catch (e) { toast(e.message, false); }
-});
-
-$('#btnTplRefresh').addEventListener('click', refreshTemplates);
 
 /* ---------- изображение ---------- */
 let img = null;
@@ -942,6 +847,8 @@ function renderSdList() {
     const item = document.createElement('div');
     item.className = 'sd-item';
 
+    const kind = f.kind || (f.raw ? 'raw' : 'image');
+
     const info = document.createElement('div');
     info.className = 'sd-info';
     const name = document.createElement('div');
@@ -949,7 +856,8 @@ function renderSdList() {
     name.textContent = f.name;
     const meta = document.createElement('div');
     meta.className = 'sd-meta';
-    const dims = f.raw ? 'raw ESC/POS'
+    const dims = kind === 'raw' ? 'raw ESC/POS'
+      : kind === 'text' ? 'текст'
       : f.valid ? (f.width + '×' + f.height) : 'неверный формат';
     meta.textContent = fmtBytes(f.size) + ' · ' + dims;
     info.append(name, meta);
@@ -958,9 +866,9 @@ function renderSdList() {
     actions.className = 'sd-actions';
 
     const printBtn = mkBtn('Печать', () => printSd(f.name), 'primary');
-    if (f.valid === false) printBtn.disabled = true;
+    if (kind === 'image' && f.valid === false) printBtn.disabled = true;
     actions.append(printBtn);
-    if (!f.raw) actions.append(mkBtn('Просмотр', () => previewSd(f.name)));
+    if (kind !== 'raw') actions.append(mkBtn('Просмотр', () => previewSd(f.name)));
     actions.append(mkBtn('Скачать', () => downloadSd(f.name)));
     actions.append(mkBtn('Удалить', () => deleteSd(f.name), 'danger'));
 
@@ -993,7 +901,13 @@ async function printSd(name) {
 }
 
 async function previewSd(name) {
+  const file = sdFiles.find((x) => x.name === name);
+  if (file && file.kind === 'text') return previewSdText(name);
+
   try {
+    $('#sdTextPreview').hidden = true;
+    $('#sdPreview').hidden = false;
+
     const res = await fetch('/api/sd/file?name=' + encodeURIComponent(name));
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const buf = new Uint8Array(await res.arrayBuffer());
@@ -1028,6 +942,24 @@ async function previewSd(name) {
   }
 }
 
+async function previewSdText(name) {
+  try {
+    const res = await fetch('/api/sd/file?name=' + encodeURIComponent(name));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    const shown = text.slice(0, 8000);
+    const pre = $('#sdTextPreview');
+    pre.hidden = false;
+    pre.textContent = shown;
+    $('#sdPreview').hidden = true;
+    const bytes = new TextEncoder().encode(text).length;
+    $('#sdPreviewInfo').textContent = name + ' · ' + fmtBytes(bytes) +
+      (text.length > shown.length ? ' · показаны первые 8000 символов' : '');
+  } catch (e) {
+    toast(e.message, false);
+  }
+}
+
 function downloadSd(name) {
   const a = document.createElement('a');
   a.href = '/api/sd/file?name=' + encodeURIComponent(name) + '&download=1';
@@ -1051,7 +983,9 @@ async function uploadSd() {
   if (!f) return toast('Выберите файл', false);
 
   let name = $('#sdUploadName').value.trim() || f.name;
-  if (!/\.(bin|raw|prn)$/i.test(name)) name += '.bin';
+  if (!/\.(bin|raw|prn|txt|md|csv|log)$/i.test(name)) {
+    name += /^text\//i.test(f.type || '') ? '.txt' : '.bin';
+  }
 
   if (sdFiles.some((x) => x.name.toLowerCase() === name.toLowerCase())) {
     if (!confirm('Файл ' + name + ' уже есть. Перезаписать?')) return;
@@ -1136,7 +1070,6 @@ $('#btnWifiReset').addEventListener('click', async () => {
 $('#baseUrl').textContent = location.origin;
 refreshStatus();
 setInterval(refreshStatus, 10000);
-refreshTemplates();
 loadConfig();
 refreshSd();
 updateCharCount();

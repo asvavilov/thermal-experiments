@@ -36,13 +36,9 @@
 #define MAX_SD_FILE_BYTES (512 * 1024)
 #define MAX_SD_FILES 64
 
-// --- Шаблоны текста (хранятся на SD) --------------------------------------
-#define TEMPLATES_PATH "/templates.json"
-#define TEMPLATES_TMP_PATH "/templates.tmp"
-#define MAX_TEMPLATES 50
-#define MAX_TEMPLATE_NAME_LEN 48
-#define MAX_TEMPLATE_TEXT_LEN 4096
-#define MAX_TEMPLATES_FILE (48 * 1024)
+// --- Текстовые файлы на SD -------------------------------------------------
+#define MAX_SD_TEXT_BYTES (64 * 1024)
+#define MAX_RICH_TAG_LEN 64
 
 #define DEFAULT_HEAT 120
 #define DEFAULT_FEED 2

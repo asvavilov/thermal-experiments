@@ -2,6 +2,8 @@
 
 #include <Arduino.h>
 
+enum class SdFileKind : uint8_t { Invalid, Image, Raw, Text };
+
 bool sdBegin();
 void sdEnd();
 bool sdMounted();
@@ -11,7 +13,10 @@ uint8_t sdCardType();
 
 String sdSanitizeName(const String& input);
 bool sdIsAllowedName(const String& name);
+SdFileKind sdFileKind(const String& name);
+const char* sdKindName(SdFileKind kind);
 bool sdIsRawFile(const String& name);
+bool sdIsTextFile(const String& name);
 String sdPath(const String& name);
 bool sdExists(const String& name);
 bool sdRemove(const String& name);
@@ -23,3 +28,4 @@ bool sdReadBitmapHeader(const String& name, uint16_t& width, uint16_t& height,
 
 bool sdPrintBitmap(const String& name, uint8_t feed, String& error);
 bool sdPrintRaw(const String& name, String& error);
+bool sdPrintText(const String& name, uint8_t feed, String& error);
