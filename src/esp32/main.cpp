@@ -32,6 +32,7 @@ struct BitmapJob {
   uint16_t height = 0;
   uint32_t expected = 0;
   uint32_t received = 0;
+  uint32_t startedAt = 0;
 };
 
 struct RawJob {
@@ -174,10 +175,11 @@ void handleStatus() {
   doc["mac"] = WiFi.macAddress();
   doc["uptime"] = (uint32_t)(millis() / 1000);
   doc["heap"] = ESP.getFreeHeap();
-  doc["baud"] = PRINTER_BAUD;
+  doc["baud"] = printerBaud();
   doc["width"] = PRINTER_WIDTH;
   doc["maxHeight"] = MAX_BITMAP_HEIGHT;
   doc["heat"] = printerHeat();
+  doc["codePage"] = printerCodePage();
   doc["dtr"] = printerDtrActive();
   sendJson(200, doc);
 }
@@ -189,7 +191,7 @@ void handleInfo() {
   doc["version"] = FW_VERSION;
   doc["width"] = PRINTER_WIDTH;
   doc["maxHeight"] = MAX_BITMAP_HEIGHT;
-  doc["baud"] = PRINTER_BAUD;
+  doc["baud"] = printerBaud();
   doc["bitmapFormat"] = "uint16 width LE, uint16 height LE, packed 1-bit rows (MSB first), 1 = black";
   JsonArray endpoints = doc["endpoints"].to<JsonArray>();
   endpoints.add("GET  /api/status");
@@ -204,6 +206,9 @@ void handleInfo() {
   endpoints.add("POST /api/feed");
   endpoints.add("POST /api/raw (multipart file)");
   endpoints.add("POST /api/test");
+  endpoints.add("POST /api/test/codepage");
+  endpoints.add("POST /api/test/bytes");
+  endpoints.add("GET  /api/debug/tx");
   endpoints.add("GET  /api/print?text=...");
   endpoints.add("POST /api/restart");
   endpoints.add("POST /api/wifi/reset");
@@ -220,10 +225,12 @@ void handleGetConfig() {
   JsonDocument doc;
   doc["ok"] = true;
   doc["heat"] = printerHeat();
-  doc["baud"] = PRINTER_BAUD;
+  doc["baud"] = printerBaud();
+  doc["codePage"] = printerCodePage();
   doc["width"] = PRINTER_WIDTH;
   doc["maxHeight"] = MAX_BITMAP_HEIGHT;
   doc["dtr"] = printerDtrActive();
+  doc["dtrEnabled"] = printerDtrEnabled();
   sendJson(200, doc);
 }
 
@@ -239,11 +246,32 @@ void handlePostConfig() {
     printerSetHeat((uint8_t)heat);
   }
 
+  if (doc["codePage"].is<int>()) {
+    const int page = doc["codePage"].as<int>();
+    if (page < 0 || page > 47) return sendError(400, "bad codePage");
+    printerSetCodePageValue((uint8_t)page);
+  }
+
+  if (doc["baud"].is<int>()) {
+    const uint32_t baud = (uint32_t)doc["baud"].as<int>();
+    if (baud != 9600 && baud != 19200 && baud != 38400 && baud != 57600 &&
+        baud != 115200) {
+      return sendError(400, "baud must be 9600/19200/38400/57600/115200");
+    }
+    if (baud != printerBaud()) printerSetBaud(baud);
+  }
+
+  if (doc["dtr"].is<bool>()) {
+    printerSetDtrEnabled(doc["dtr"].as<bool>());
+  }
+
   JsonDocument out;
   out["ok"] = true;
   out["heat"] = printerHeat();
-  out["baud"] = PRINTER_BAUD;
+  out["baud"] = printerBaud();
+  out["codePage"] = printerCodePage();
   out["dtr"] = printerDtrActive();
+  out["dtrEnabled"] = printerDtrEnabled();
   sendJson(200, out);
 }
 
@@ -371,6 +399,8 @@ void handleFeed() {
   }
   if (lines < 1) lines = 1;
   if (lines > 255) lines = 255;
+  // Без сброса принтер мог уйти в сон или остаться offline после тегов.
+  if (!printerBeginJob()) return sendError(503, "printer not ready");
   if (!printerFeed((uint8_t)lines)) return sendError(503, "printer not ready");
   sendOk("fed");
 }
@@ -378,6 +408,37 @@ void handleFeed() {
 void handleTest() {
   if (!printerTestPage()) return sendError(503, "printer not ready");
   sendOk("test page printed");
+}
+
+void handleCodePageTest() {
+  if (!printerCodePageTest()) return sendError(503, "printer not ready");
+  sendOk("codepage test printed");
+}
+
+void handleCommandTest() {
+  if (!printerCommandTest()) return sendError(503, "printer not ready");
+  sendOk("command test printed");
+}
+
+void handleDebugTx() {
+  if (server.hasArg("reset")) {
+    printerTxLogReset();
+    return sendOk("tx log cleared");
+  }
+  uint8_t buf[512];
+  const size_t n = printerTxLog(buf, sizeof(buf));
+  String hex;
+  hex.reserve(n * 2);
+  static const char* digits = "0123456789abcdef";
+  for (size_t i = 0; i < n; i++) {
+    hex += digits[buf[i] >> 4];
+    hex += digits[buf[i] & 0x0F];
+  }
+  JsonDocument doc;
+  doc["ok"] = true;
+  doc["bytes"] = (unsigned)n;
+  doc["hex"] = hex;
+  sendJson(200, doc);
 }
 
 void handlePrintGet() {
@@ -451,6 +512,7 @@ void handleBitmapUpload() {
           snprintf(bmp.errorMsg, sizeof(bmp.errorMsg), "printer not ready");
         } else {
           printerBitmapHeader(bmp.width, bmp.height);
+          bmp.startedAt = millis();
           bmp.started = true;
         }
       }
@@ -505,6 +567,9 @@ void handleBitmapDone() {
     if (bmp.errorMsg[0] == 0) snprintf(bmp.errorMsg, sizeof(bmp.errorMsg), "print failed");
     return sendError(400, bmp.errorMsg);
   }
+  const uint32_t elapsed = bmp.startedAt ? millis() - bmp.startedAt : 0;
+  Serial.printf("[print] bitmap %ux%u, %u bytes, %u ms\n", (unsigned)bmp.width,
+                (unsigned)bmp.height, (unsigned)bmp.received, (unsigned)elapsed);
   sendOk("printed");
 }
 
@@ -949,6 +1014,9 @@ void setupWeb() {
   server.on("/api/barcode", HTTP_POST, handleBarcode);
   server.on("/api/feed", HTTP_POST, handleFeed);
   server.on("/api/test", HTTP_POST, handleTest);
+  server.on("/api/test/codepage", HTTP_POST, handleCodePageTest);
+  server.on("/api/test/bytes", HTTP_POST, handleCommandTest);
+  server.on("/api/debug/tx", HTTP_GET, handleDebugTx);
   server.on("/api/print", HTTP_GET, handlePrintGet);
   server.on("/api/bitmap", HTTP_POST, handleBitmapDone, handleBitmapUpload);
   server.on("/api/raw", HTTP_POST, handleRawDone, handleRawUpload);

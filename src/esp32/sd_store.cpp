@@ -299,6 +299,7 @@ bool printBitmapFile(const String& name, uint8_t feed, bool beginJob,
     return false;
   }
   printerBitmapHeader(width, height);
+  const uint32_t startedAt = millis();
 
   uint8_t buffer[256];
   uint32_t left = dataBytes;
@@ -319,6 +320,10 @@ bool printBitmapFile(const String& name, uint8_t feed, bool beginJob,
   }
 
   f.close();
+
+  Serial.printf("[print] sd bitmap %s %ux%u, %u ms\n", name.c_str(),
+                (unsigned)width, (unsigned)height,
+                (unsigned)(millis() - startedAt));
 
   if (feed && !printerFeed(feed)) {
     error = "printer not ready";

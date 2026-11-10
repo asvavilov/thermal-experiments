@@ -18,7 +18,16 @@ bool printerFeed(uint8_t lines);
 void printerSetHeat(uint8_t heat);
 uint8_t printerHeat();
 bool printerDtrActive();
-
+bool printerDtrEnabled();
+void printerSetDtrEnabled(bool on);
+uint32_t printerBaud();
+void printerSetBaud(uint32_t baud);
+uint8_t printerCodePage();
+void printerSetCodePageValue(uint8_t page);
+bool printerCodePageTest();
+bool printerCommandTest();
+void printerTxLogReset();
+size_t printerTxLog(uint8_t* out, size_t cap);
 bool printerText(const String& utf8, uint8_t size, bool bold, bool underline,
                  char align, uint8_t feed);
 String printerEncodeText(const String& utf8, uint8_t codePage);
@@ -52,6 +61,5 @@ bool printerWrite(const uint8_t* data, size_t len);
 bool printerQr(const String& data, uint8_t moduleSize, uint8_t feed);
 bool printerQrInline(const String& data, uint8_t moduleSize);
 bool printerBarcode(const String& type, const String& data, uint8_t height,
-                    uint8_t width, uint8_t feed);
-bool printerTestPage();
+                    uint8_t width, uint8_t feed);bool printerTestPage();
 PrinterStatus printerQueryStatus();

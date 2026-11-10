@@ -207,7 +207,7 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
         <summary>Дополнительно (кодовая страница, плотность, сон, online)</summary>
         <div class="fmt-group">
           <span class="fmt-label">Кодовая страница</span>
-          <select id="codePage"><option value="46">CP1251 (46)</option><option value="17">CP866 (17)</option></select>
+          <select id="codePage"><option value="6">CP1251 (6)</option><option value="7">CP866 (7)</option></select>
           <button id="btnCodePage">setCodePage</button>
           <label class="fmt-inline">Charset <input id="charset" type="number" min="0" max="15" value="0"></label>
           <button id="btnCharset">setCharset</button>
@@ -262,8 +262,8 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
             <li><code>[tab]</code> — табуляция.</li>
             <li><code>[feed,0..255]</code> — подача строк; <code>[feedRows,0..255]</code> — подача в точках.</li>
             <li><code>[setDefault]</code> — сброс форматирования (кодовую страницу не меняет).</li>
-            <li><code>[reset]</code> — полный сброс задания и возврат к CP1251.</li>
-            <li><code>[setCodePage,46|17]</code> — 46 = CP1251, 17 = CP866; другие значения только для латиницы.</li>
+            <li><code>[reset]</code> — полный сброс задания и возврат к кодовой странице из настроек.</li>
+            <li><code>[setCodePage,6|7]</code> — 6 = CP1251, 7 = CP866; другие значения только для латиницы.</li>
             <li><code>[setCharset,0..15]</code> — таблица символов ESC/POS (конвертацию кириллицы не меняет).</li>
             <li><code>[setBarcodeHeight,1..255]</code> — высота последующих штрихкодов.</li>
             <li><code>[qr,URL]</code> — вставить QR с данными (модуль 2–4 автоматически, до 690 байт).</li>
@@ -430,9 +430,25 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
       <h2>Принтер</h2>
       <div class="grid">
         <label>Плотность (heat time) <span><input id="heat" type="range" min="1" max="255" value="120"> <span id="heatVal">120</span></span></label>
+        <label>Кодовая страница<select id="cfgCodePage">
+          <option value="6">CP1251 (ESC t 6)</option>
+          <option value="7">CP866 (ESC t 7)</option>
+        </select></label>
+        <label>Скорость UART<select id="cfgBaudSel">
+          <option value="9600">9600</option>
+          <option value="19200">19200</option>
+          <option value="38400">38400</option>
+          <option value="57600">57600</option>
+          <option value="115200">115200</option>
+        </select></label>
+        <label><span>DTR (аппаратный поток)</span><input id="cfgDtr" type="checkbox" checked></label>
       </div>
-      <div class="actions"><button id="btnHeat">Сохранить плотность</button></div>
-      <div class="hint">Baud: <span id="cfgBaud">—</span> · ширина: <span id="cfgWidth">—</span> точек. Скорость задаётся в прошивке и должна совпадать с принтером.</div>
+      <div class="actions">
+        <button class="primary" id="btnSaveCfg">Сохранить настройки</button>
+        <button id="btnCodePageTest">Тест кодовых страниц</button>
+        <button id="btnCommandTest">Тест команд</button>
+      </div>
+      <div class="hint">Baud: <span id="cfgBaud">—</span> · ширина: <span id="cfgWidth">—</span> точек · кодовая страница: <span id="cfgCpLabel">—</span>. Кириллица: 6 = CP1251, 7 = CP866 (46 — это Hebrew, 17 — Greek, на них будут «кракозябры»). Скорость должна совпадать с принтером — обычно 9600.</div>
       <div class="actions">
         <button id="btnPrinterStatus">Проверить принтер</button>
         <button id="btnFeed">Подать бумагу</button>
@@ -470,7 +486,7 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
       <pre class="mono">GET  /api/status                 состояние устройства
 GET  /api/info                   возможности и список API
 GET  /api/config                 настройки
-POST /api/config                 {"heat":120}
+POST /api/config                 {"heat":120,"codePage":6,"baud":9600,"dtr":true}
 GET  /api/printer/status         опрос принтера (бумага/статус)
 POST /api/text                   {"text":"...","size":"M","align":"C"}
 POST /api/bitmap                 multipart file: заголовок + 1-битные строки
@@ -479,6 +495,7 @@ POST /api/barcode                {"type":"CODE128","data":"..."}
 POST /api/feed                   {"lines":3}
 POST /api/raw                    multipart file: сырой ESC/POS
 POST /api/test                   тестовая страница
+POST /api/test/codepage          тест кодовых страниц (46/17)
 GET  /api/print?text=...         печать текста из URL
 POST /api/restart                перезагрузка
 POST /api/wifi/reset             сброс Wi-Fi и перезагрузка
@@ -2216,20 +2233,42 @@ $('#heat').addEventListener('input', () => { $('#heatVal').textContent = $('#hea
 async function loadConfig() {
   try {
     const d = await api('/api/config');
+    const cp = d.codePage === 7 ? 7 : 6;
     $('#heat').value = d.heat;
     $('#heatVal').textContent = d.heat;
     $('#cfgBaud').textContent = d.baud;
     $('#cfgWidth').textContent = d.width;
+    $('#cfgCodePage').value = String(cp);
+    $('#cfgCpLabel').textContent = cp === 7 ? 'CP866 (7)' : 'CP1251 (6)';
+    $('#cfgBaudSel').value = String(d.baud);
+    $('#cfgDtr').checked = !!d.dtrEnabled;
   } catch (e) { /* ignore */ }
 }
 
-$('#btnHeat').addEventListener('click', async () => {
+$('#btnSaveCfg').addEventListener('click', async () => {
   try {
-    const d = await jsonPost('/api/config', { heat: Number($('#heat').value) });
+    const d = await jsonPost('/api/config', {
+      heat: Number($('#heat').value),
+      codePage: Number($('#cfgCodePage').value) || 6,
+      baud: Number($('#cfgBaudSel').value),
+      dtr: $('#cfgDtr').checked
+    });
     $('#heat').value = d.heat;
     $('#heatVal').textContent = d.heat;
-    toast('Плотность сохранена');
+    $('#cfgBaud').textContent = d.baud;
+    $('#cfgCpLabel').textContent = d.codePage === 7 ? 'CP866 (7)' : 'CP1251 (6)';
+    toast('Настройки сохранены');
   } catch (e) { toast(e.message, false); }
+});
+
+$('#btnCodePageTest').addEventListener('click', async () => {
+  try { await api('/api/test/codepage', { method: 'POST' }); toast('Тест кодовых страниц напечатан'); }
+  catch (e) { toast(e.message, false); }
+});
+
+$('#btnCommandTest').addEventListener('click', async () => {
+  try { await api('/api/test/bytes', { method: 'POST' }); toast('Тест команд напечатан'); }
+  catch (e) { toast(e.message, false); }
 });
 
 $('#btnPrinterStatus').addEventListener('click', async () => {

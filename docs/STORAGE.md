@@ -47,8 +47,8 @@
 
 ## 2. NVS контроллера: что хранит прошивка
 
-Наша прошивка использует `Preferences` (обёртка над NVS) только для
-плотности печати:
+Наша прошивка использует `Preferences` (обёртка над NVS) для настроек
+принтера:
 
 ```text
 namespace: "printer"
@@ -57,9 +57,16 @@ type:      uint8 (1..255)
 default:   120
 ```
 
-- Читается при старте в `printerLoadSettings()`.
-- Пишется в `printerSetHeat()` при `POST /api/config`.
-- Отдаётся в `GET /api/config` и `GET /api/status`.
+```text
+key:       "cp"        ESC t: 6 = CP1251, 7 = CP866; default 6
+key:       "baud"      uint32: 9600/19200/38400/57600/115200; default 9600
+key:       "dtr"       bool: аппаратный поток по DTR; default true
+```
+
+- Читаются при старте в `printerLoadSettings()`.
+- Пишутся в `printerSetHeat()`, `printerSetCodePageValue()`,
+  `printerSetBaud()`, `printerSetDtrEnabled()` при `POST /api/config`.
+- Отдаются в `GET /api/config` и `GET /api/status`.
 - `POST /api/wifi/reset` его **не** трогает.
 - Полное стирание flash (`pio run -t erase`, `esptool erase_flash`)
   удаляет NVS вместе с Wi-Fi; после этого `heat` снова 120.
@@ -67,7 +74,9 @@ default:   120
 Остальные настройки — **compile-time** в `config.h` и меняются только
 пересборкой:
 
-- `PRINTER_BAUD` (9600), пины UART/DTR/SD, `SD_SPI_HZ`;
+- `PRINTER_BAUD` (9600, стартовое значение, если в NVS пусто),
+  `DEFAULT_CODEPAGE` (6), `DEFAULT_USE_DTR` (1), пины UART/DTR/SD,
+  `SD_SPI_HZ`;
 - `HOSTNAME` (`thermal`), `WIFI_AP_NAME`, `WIFI_AP_PASS`;
 - таймауты Wi-Fi, лимиты текста/QR/файлов, `DEFAULT_HEAT`.
 

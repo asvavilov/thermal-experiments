@@ -11,7 +11,17 @@ Preferences prefs;
 bool prefsReady = false;
 uint8_t heatValue = DEFAULT_HEAT;
 bool dtrPresent = false;
+bool dtrEnabled = DEFAULT_USE_DTR;
 uint8_t printMode = 0;
+uint32_t baudValue = PRINTER_BAUD;
+uint8_t codePageValue = DEFAULT_CODEPAGE;
+// Принтер принимает ~256 байт буфера; пишем крупными кусками, чтобы не
+// терять время на переключениях и не рвать поток.
+constexpr size_t WRITE_CHUNK = 128;
+
+// Лог реально отправленных в принтер байт (для диагностики).
+uint8_t txLog[512];
+size_t txLogLen = 0;
 
 // ---------------------------------------------------------------------------
 // UTF-8 -> CP1251 / CP866 / ASCII
@@ -142,7 +152,7 @@ String utf8ToAscii(const String& src) { return decodeUtf8(src, appendAscii); }
 
 bool waitReady() {
 #if USE_DTR
-  if (!dtrPresent) return true;
+  if (!dtrEnabled || !dtrPresent) return true;
   const uint32_t start = millis();
   while (digitalRead(PIN_PRINTER_DTR) != DTR_READY_LEVEL) {
     if (millis() - start > DTR_WAIT_TIMEOUT_MS) {
@@ -160,11 +170,14 @@ bool writeBytes(const uint8_t* data, size_t len) {
   while (off < len) {
     if (!waitReady()) return false;
     size_t n = len - off;
-    if (n > 64) n = 64;
+    if (n > WRITE_CHUNK) n = WRITE_CHUNK;
     const size_t written = Serial2.write(data + off, n);
     if (written == 0) {
       delay(1);
       continue;
+    }
+    for (size_t i = 0; i < written && txLogLen < sizeof(txLog); i++) {
+      txLog[txLogLen++] = data[off + i];
     }
     off += written;
     delay(1);
@@ -208,33 +221,46 @@ void setPrintModeBit(uint8_t mask, bool on) {
 // ---------------------------------------------------------------------------
 
 void printerBegin() {
-  Serial2.begin(PRINTER_BAUD, SERIAL_8N1, PIN_PRINTER_RX, PIN_PRINTER_TX);
+  Serial2.setTxBufferSize(1024);
+  Serial2.begin(baudValue, SERIAL_8N1, PIN_PRINTER_RX, PIN_PRINTER_TX);
   pinMode(PIN_PRINTER_DTR, INPUT_PULLUP);
   printerLoadSettings();
   delay(100);
 
   // Определяем, подключён ли DTR. Если линия не подключена, INPUT_PULLUP
   // держит HIGH; тогда работаем с паузами, а не ждём готовности.
-  const uint32_t probeStart = millis();
-  while (digitalRead(PIN_PRINTER_DTR) != DTR_READY_LEVEL &&
-         millis() - probeStart < DTR_BOOT_PROBE_MS) {
-    delay(1);
+  if (dtrEnabled) {
+    const uint32_t probeStart = millis();
+    while (digitalRead(PIN_PRINTER_DTR) != DTR_READY_LEVEL &&
+           millis() - probeStart < DTR_BOOT_PROBE_MS) {
+      delay(1);
+    }
+    dtrPresent = digitalRead(PIN_PRINTER_DTR) == DTR_READY_LEVEL;
+  } else {
+    dtrPresent = false;
   }
-  dtrPresent = digitalRead(PIN_PRINTER_DTR) == DTR_READY_LEVEL;
-  Serial.println(dtrPresent ? "[printer] DTR detected"
-                            : "[printer] DTR not detected, using delays");
+  if (!dtrEnabled) {
+    Serial.println("[printer] DTR disabled in settings, using delays");
+  } else {
+    Serial.println(dtrPresent ? "[printer] DTR detected"
+                              : "[printer] DTR not detected, using delays");
+  }
+  Serial.printf("[printer] baud %u, codepage %u\n", (unsigned)baudValue,
+                (unsigned)codePageValue);
 
   // Сброс и включение аппаратного управления потоком по DTR.
   // GS a 0x20 — так делает Adafruit_Thermal при использовании DTR.
   const uint8_t reset[] = {0x1B, 0x40};
   writeBytes(reset, sizeof(reset));
   delay(100);
-  const uint8_t dtrOn[] = {0x1D, 0x61, 0x20};
-  writeBytes(dtrOn, sizeof(dtrOn));
-  delay(50);
-  if (!dtrPresent) {
-    dtrPresent = digitalRead(PIN_PRINTER_DTR) == DTR_READY_LEVEL;
-    if (dtrPresent) Serial.println("[printer] DTR detected after init");
+  if (dtrEnabled) {
+    const uint8_t dtrOn[] = {0x1D, 0x61, 0x20};
+    writeBytes(dtrOn, sizeof(dtrOn));
+    delay(50);
+    if (!dtrPresent) {
+      dtrPresent = digitalRead(PIN_PRINTER_DTR) == DTR_READY_LEVEL;
+      if (dtrPresent) Serial.println("[printer] DTR detected after init");
+    }
   }
 }
 
@@ -243,11 +269,21 @@ void printerLoadSettings() {
   prefsReady = true;
   heatValue = prefs.getUChar("heat", DEFAULT_HEAT);
   if (heatValue == 0) heatValue = DEFAULT_HEAT;
+
+  baudValue = prefs.getUInt("baud", PRINTER_BAUD);
+  if (baudValue < 1200 || baudValue > 500000) baudValue = PRINTER_BAUD;
+
+  codePageValue = prefs.getUChar("cp", DEFAULT_CODEPAGE);
+  // Старые версии сохраняли 46/17 (это Hebrew/Greek); переносим на 6/7.
+  if (codePageValue == 46) codePageValue = 6;
+  if (codePageValue == 17) codePageValue = 7;
+  if (codePageValue > 47) codePageValue = DEFAULT_CODEPAGE;
+
+  dtrEnabled = prefs.getBool("dtr", DEFAULT_USE_DTR != 0);
 }
 
 bool printerBeginJob() {
-  printerWake();  // 0xFF + ESC 8 0 0 — выйти из сна, если предыдущий тег усыпил
-  const uint8_t reset[] = {0x1B, 0x40};  // ESC @
+  const uint8_t reset[] = {0x1B, 0x40};  // ESC @ — сброс и выход из сна
   if (!writeBytes(reset, sizeof(reset))) return false;
   delay(50);
 
@@ -257,10 +293,12 @@ bool printerBeginJob() {
   writePrintMode();  // ESC ! 0 — сбросить режим печати
 
   // Включить аппаратное управление потоком по DTR (как в Adafruit_Thermal).
-  const uint8_t dtrOn[] = {0x1D, 0x61, 0x20};  // GS a 0x20
-  if (!writeBytes(dtrOn, sizeof(dtrOn))) return false;
+  if (dtrEnabled) {
+    const uint8_t dtrOn[] = {0x1D, 0x61, 0x20};  // GS a 0x20
+    if (!writeBytes(dtrOn, sizeof(dtrOn))) return false;
+  }
 
-  const uint8_t codepage[] = {0x1B, 0x74, 46};  // ESC t 46 = WPC1251
+  const uint8_t codepage[] = {0x1B, 0x74, codePageValue};  // ESC t n
   if (!writeBytes(codepage, sizeof(codepage))) return false;
 
   const uint8_t heatCmd[] = {0x1B, 0x37, 11, heatValue, 40};  // ESC 7 dots,time,interval
@@ -278,8 +316,16 @@ void printerReset() {
 
 bool printerFeed(uint8_t lines) {
   if (lines == 0) return true;
-  const uint8_t cmd[] = {0x1B, 0x64, lines};  // ESC d n
-  return writeBytes(cmd, sizeof(cmd));
+  // ESC d (0x1B 0x64 n) на T7-US игнорируется, поэтому подача — переводами
+  // строки: их понимает любая ESC/POS-прошивка.
+  uint8_t buf[32];
+  memset(buf, '\n', sizeof(buf));
+  while (lines > 0) {
+    const uint8_t n = lines > sizeof(buf) ? (uint8_t)sizeof(buf) : lines;
+    if (!writeBytes(buf, n)) return false;
+    lines -= n;
+  }
+  return true;
 }
 
 void printerSetHeat(uint8_t heat) {
@@ -290,7 +336,133 @@ void printerSetHeat(uint8_t heat) {
 
 uint8_t printerHeat() { return heatValue; }
 
-bool printerDtrActive() { return dtrPresent; }
+bool printerDtrActive() { return dtrEnabled && dtrPresent; }
+bool printerDtrEnabled() { return dtrEnabled; }
+
+void printerSetDtrEnabled(bool on) {
+  dtrEnabled = on;
+  if (prefsReady) prefs.putBool("dtr", on);
+}
+
+uint32_t printerBaud() { return baudValue; }
+
+void printerSetBaud(uint32_t baud) {
+  if (baud < 1200 || baud > 500000) return;
+  baudValue = baud;
+  if (prefsReady) prefs.putUInt("baud", baudValue);
+  Serial2.end();
+  Serial2.setTxBufferSize(1024);
+  Serial2.begin(baudValue, SERIAL_8N1, PIN_PRINTER_RX, PIN_PRINTER_TX);
+  Serial.printf("[printer] baud changed to %u\n", (unsigned)baudValue);
+}
+
+uint8_t printerCodePage() { return codePageValue; }
+
+void printerSetCodePageValue(uint8_t page) {
+  if (page > 47) return;
+  codePageValue = page;
+  if (prefsReady) prefs.putUChar("cp", codePageValue);
+  Serial.printf("[printer] codepage set to %u\n", (unsigned)codePageValue);
+}
+
+// Печатает по строке на каждую кодовую страницу 0..47 с текстом в CP1251,
+// плюс контрольную строку с CP866 на странице 7. По бумаге видно, какая
+// страница даёт читаемую кириллицу (для T7-US это 6).
+bool printerCodePageTest() {
+  if (!printerBeginJob()) return false;
+
+  const char* text = "Привет, мир!";
+  const String cp1251 = utf8ToCp1251(text);
+  const String cp866 = utf8ToCp866(text);
+
+  for (uint8_t page = 0; page <= 47; page++) {
+    const uint8_t pageCmd[] = {0x1B, 0x74, page};  // ESC t n
+    if (!writeBytes(pageCmd, sizeof(pageCmd))) return false;
+
+    char label[8];
+    snprintf(label, sizeof(label), "%02u:", (unsigned)page);
+    if (!writeBytes((const uint8_t*)label, strlen(label))) return false;
+    if (!writeBytes((const uint8_t*)cp1251.c_str(), cp1251.length())) return false;
+    if (!writeByte('\n')) return false;
+  }
+
+  const uint8_t page7[] = {0x1B, 0x74, 7};  // ESC t 7 = CP866
+  if (!writeBytes(page7, sizeof(page7))) return false;
+  const char* label866 = "07/866:";
+  if (!writeBytes((const uint8_t*)label866, strlen(label866))) return false;
+  if (!writeBytes((const uint8_t*)cp866.c_str(), cp866.length())) return false;
+  if (!writeByte('\n')) return false;
+
+  // Возвращаемся к сохранённой странице.
+  const uint8_t restore[] = {0x1B, 0x74, codePageValue};
+  if (!writeBytes(restore, sizeof(restore))) return false;
+  return printerFeed(3);
+}
+
+// Диагностика: печатает по строке на каждую команду, которую прошивка
+// отправляет в начале задания. Символ, вылезший после метки, показывает,
+// какая команда на этой плате печатается.
+bool printerCommandTest() {
+  struct Case {
+    const char* label;
+    uint8_t len;
+    uint8_t bytes[8];
+  };
+  const Case cases[] = {
+      {"FF:", 1, {0xFF}},
+      {"ESC8:", 4, {0x1B, 0x38, 0x00, 0x00}},
+      {"ESC@:", 2, {0x1B, 0x40}},
+      {"ESC=:", 3, {0x1B, 0x3D, 0x01}},
+      {"ESC!:", 3, {0x1B, 0x21, 0x00}},
+      {"GSa:", 3, {0x1D, 0x61, 0x20}},
+      {"ESCt:", 3, {0x1B, 0x74, 0x06}},
+      {"ESC7:", 5, {0x1B, 0x37, 0x0B, 0x78, 0x28}},
+      {"ESC2:", 2, {0x1B, 0x32}},
+      {"ESCd:", 3, {0x1B, 0x64, 0x02}},
+      {"NUL:", 2, {0x00, 0x00}},
+  };
+
+  for (const Case& c : cases) {
+    if (!writeBytes((const uint8_t*)c.label, strlen(c.label))) return false;
+    if (!writeBytes(c.bytes, c.len)) return false;
+    if (!writeByte('\n')) return false;
+  }
+
+  // Варианты полного старта задания (printerBeginJob). Если символ вылезет
+  // после метки — виновата команда, которая в этом варианте есть.
+  const uint8_t wake[] = {0x1B, 0x38, 0x00, 0x00};   // ESC 8 0 0
+  const uint8_t reset[] = {0x1B, 0x40};              // ESC @
+  const uint8_t online[] = {0x1B, 0x3D, 0x01};       // ESC = 1
+  const uint8_t mode[] = {0x1B, 0x21, 0x00};         // ESC ! 0
+  const uint8_t asb[] = {0x1D, 0x61, 0x20};          // GS a 0x20
+  const uint8_t page[] = {0x1B, 0x74, 0x06};         // ESC t 6
+  const uint8_t heat[] = {0x1B, 0x37, 0x0B, 0x78, 0x28};  // ESC 7
+  const uint8_t spacing[] = {0x1B, 0x32};            // ESC 2
+
+  auto run = [&](const char* label, bool useWake, bool useAsb, bool usePage,
+                 bool useHeat) -> bool {
+    if (!writeBytes((const uint8_t*)label, strlen(label))) return false;
+    if (useWake && !writeBytes(wake, sizeof(wake))) return false;
+    if (!writeBytes(reset, sizeof(reset))) return false;
+    if (!writeBytes(online, sizeof(online))) return false;
+    if (!writeBytes(mode, sizeof(mode))) return false;
+    if (useAsb && !writeBytes(asb, sizeof(asb))) return false;
+    if (usePage && !writeBytes(page, sizeof(page))) return false;
+    if (useHeat && !writeBytes(heat, sizeof(heat))) return false;
+    if (!writeBytes(spacing, sizeof(spacing))) return false;
+    return writeByte('\n');
+  };
+
+  delay(1000);  // пауза, как между заданиями
+  if (!run("JA:", true, true, true, true)) return false;
+  if (!run("JB:", false, true, true, true)) return false;
+  if (!run("JC:", true, false, true, true)) return false;
+  if (!run("JD:", true, true, false, true)) return false;
+  if (!run("JE:", true, true, true, false)) return false;
+  if (!run("JF:", true, false, false, false)) return false;
+
+  return printerFeed(3);
+}
 
 bool printerText(const String& utf8, uint8_t size, bool bold, bool underline,
                  char align, uint8_t feed) {
@@ -323,7 +495,7 @@ bool printerText(const String& utf8, uint8_t size, bool bold, bool underline,
     if (!writeBytes(cmd, sizeof(cmd))) return false;
   }
 
-  const String cp = printerEncodeText(normalized, 46);
+  const String cp = printerEncodeText(normalized, codePageValue);
   if (!writeBytes((const uint8_t*)cp.c_str(), cp.length())) return false;
 
   if (cp.length() == 0 || cp[cp.length() - 1] != '\n') {
@@ -338,8 +510,9 @@ bool printerText(const String& utf8, uint8_t size, bool bold, bool underline,
 }
 
 String printerEncodeText(const String& utf8, uint8_t codePage) {
-  if (codePage == 46) return utf8ToCp1251(utf8);
-  if (codePage == 17) return utf8ToCp866(utf8);
+  // Номера — как в Adafruit_Thermal: 6 = WPC1251, 7 = CP866.
+  if (codePage == 6) return utf8ToCp1251(utf8);
+  if (codePage == 7) return utf8ToCp866(utf8);
   return utf8ToAscii(utf8);
 }
 
@@ -448,10 +621,20 @@ void printerSleepAfter(uint16_t seconds) {
 }
 
 void printerWake() {
-  writeByte(0xFF);
-  delay(50);
-  const uint8_t cmd[] = {0x1B, 0x38, 0x00, 0x00};  // sleep off
-  writeBytes(cmd, sizeof(cmd));
+  // ESC 8 0 0 (как в Adafruit_Thermal) на этой плате усыпляет принтер и
+  // даёт лишний символ при пробуждении, а 0xFF печатается как «я».
+  // Будим сбросом — он же выводит принтер из сна.
+  const uint8_t reset[] = {0x1B, 0x40};  // ESC @
+  writeBytes(reset, sizeof(reset));
+}
+
+// Диагностика: последние байты, реально ушедшие в UART принтера.
+void printerTxLogReset() { txLogLen = 0; }
+
+size_t printerTxLog(uint8_t* out, size_t cap) {
+  const size_t n = txLogLen < cap ? txLogLen : cap;
+  memcpy(out, txLog, n);
+  return n;
 }
 
 void printerOnline(bool on) {

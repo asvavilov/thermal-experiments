@@ -6,10 +6,19 @@
 // ---------------------------------------------------------------------------
 
 #define FW_NAME "thermal"
-#define FW_VERSION "1.0.0"
+#define FW_VERSION "1.0.3"
 
 // --- Принтер ---------------------------------------------------------------
 #define PRINTER_BAUD 9600
+// Кодовая страница ESC t по таблице Adafruit/Epson (её же понимает T7-US):
+// 6 = WPC1251, 7 = CP866. Внимание: 46 — это Hebrew CP856, а 17 — Greek
+// WCP1253, поэтому кириллица на них получается «кракозябрами».
+// Переключается в настройках (POST /api/config {"codePage":7}).
+#define DEFAULT_CODEPAGE 6
+// Аппаратное управление потоком по DTR. Можно выключить через
+// POST /api/config {"dtr":false}, если принтер дёргает линию и печать
+// идёт рывками.
+#define DEFAULT_USE_DTR 1
 #define PIN_PRINTER_RX 16   // ESP32 RX2  <- TX принтера (через делитель)
 #define PIN_PRINTER_TX 17   // ESP32 TX2  -> RX принтера
 #define PIN_PRINTER_DTR 4   // ESP32 GPIO <- DTR принтера (через делитель)

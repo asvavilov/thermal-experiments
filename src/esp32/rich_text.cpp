@@ -214,7 +214,7 @@ TagResult execTag(const String& tag, uint8_t& codePage) {
   }
   if (cmd == "reset") {
     if (!printerBeginJob()) return TagResult::Error;
-    codePage = 46;
+    codePage = printerCodePage();
     return TagResult::Ok;
   }
 
@@ -227,7 +227,7 @@ bool RichTextPrinter::begin(String& error) {
   error = "";
   pending_ = "";
   segment_ = "";
-  codePage_ = 46;
+  codePage_ = printerCodePage();
   printed_ = false;
   lastWasFeed_ = false;
   parseTags_ = true;
