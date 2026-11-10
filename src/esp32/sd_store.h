@@ -2,7 +2,7 @@
 
 #include <Arduino.h>
 
-enum class SdFileKind : uint8_t { Invalid, Image, Raw, Text };
+enum class SdFileKind : uint8_t { Invalid, Image, Raw, Text, Plain };
 
 bool sdBegin();
 void sdEnd();
@@ -27,5 +27,7 @@ bool sdReadBitmapHeader(const String& name, uint16_t& width, uint16_t& height,
                         uint32_t& dataBytes);
 
 bool sdPrintBitmap(const String& name, uint8_t feed, String& error);
+bool sdPrintBitmapInline(const String& name, String& error);
 bool sdPrintRaw(const String& name, String& error);
 bool sdPrintText(const String& name, uint8_t feed, String& error);
+bool sdPrintPlainText(const String& name, uint8_t feed, String& error);

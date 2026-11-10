@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "printer.h"
+#include "sd_store.h"
 
 namespace {
 
@@ -22,6 +23,19 @@ String argAt(const String& tag, int index) {
     start = comma + 1;
   }
   return String();
+}
+
+// Возвращает остаток тега после index-й запятой, сохраняя запятые внутри.
+String argFrom(const String& tag, int index) {
+  int start = 0;
+  for (int part = 0; part < index; part++) {
+    const int comma = tag.indexOf(',', start);
+    if (comma < 0) return String();
+    start = comma + 1;
+  }
+  String value = tag.substring(start);
+  value.trim();
+  return value;
 }
 
 int argInt(const String& tag, int index, int fallback) {
@@ -145,6 +159,21 @@ TagResult execTag(const String& tag, uint8_t& codePage) {
     printerSetBarcodeHeight((uint8_t)constrain(argInt(tag, 1, 50), 1, 255));
     return TagResult::Ok;
   }
+  if (cmd == "qr") {
+    const String data = argFrom(tag, 1);
+    if (data.length() == 0 || data.length() > MAX_QR_LEN) return TagResult::Ok;
+    const uint8_t module = data.length() <= 100 ? 4 : (data.length() <= 300 ? 3 : 2);
+    if (!printerQrInline(data, module)) return TagResult::Error;
+    if (!printerFeed(1)) return TagResult::Error;
+    return TagResult::Ok;
+  }
+  if (cmd == "image") {
+    const String name = argFrom(tag, 1);
+    String error;
+    if (!sdPrintBitmapInline(name, error)) return TagResult::Error;
+    if (!printerFeed(1)) return TagResult::Error;
+    return TagResult::Ok;
+  }
   if (cmd == "setprintdensity") {
     printerSetPrintDensity(
         (uint8_t)constrain(argInt(tag, 1, 10), 0, 31),
@@ -201,6 +230,7 @@ bool RichTextPrinter::begin(String& error) {
   codePage_ = 46;
   printed_ = false;
   lastWasFeed_ = false;
+  parseTags_ = true;
   lastChar_ = 0;
   pending_.reserve(MAX_RICH_TAG_LEN + 8);
   segment_.reserve(512);
@@ -209,6 +239,12 @@ bool RichTextPrinter::begin(String& error) {
     error = "printer not ready";
     return false;
   }
+  return true;
+}
+
+bool RichTextPrinter::beginPlain(String& error) {
+  if (!begin(error)) return false;
+  parseTags_ = false;
   return true;
 }
 
@@ -248,6 +284,24 @@ bool RichTextPrinter::flushSegment(bool force, String& error) {
 }
 
 bool RichTextPrinter::process(String& error) {
+  if (!parseTags_) {
+    size_t p = 0;
+    while (p < pending_.length()) {
+      const char c = pending_[p];
+      if (c == '\r') {
+        p++;
+        continue;
+      }
+      segment_ += c;
+      lastChar_ = c;
+      lastWasFeed_ = false;
+      p++;
+      if (segment_.length() >= 512 && !flushSegment(false, error)) return false;
+    }
+    if (p > 0) pending_.remove(0, (unsigned int)p);
+    return true;
+  }
+
   size_t i = 0;
   while (i < pending_.length()) {
     if (segment_.length() >= 512 && !flushSegment(false, error)) return false;
@@ -313,7 +367,8 @@ bool RichTextPrinter::process(String& error) {
       lastChar_ = ']';
       lastWasFeed_ = false;
     } else {
-      lastWasFeed_ = (cmd == "feed" || cmd == "feedrows");
+      lastWasFeed_ = (cmd == "feed" || cmd == "feedrows" ||
+                      cmd == "qr" || cmd == "image");
     }
     i = (size_t)end + 1;
   }

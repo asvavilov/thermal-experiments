@@ -644,7 +644,8 @@ void handleSdFile() {
     server.sendHeader("Content-Disposition",
                       String("attachment; filename=\"") + name + "\"");
   }
-  const bool text = sdFileKind(name) == SdFileKind::Text;
+  const bool text = sdFileKind(name) == SdFileKind::Text ||
+                    sdFileKind(name) == SdFileKind::Plain;
   server.streamFile(file, text ? "text/plain; charset=utf-8"
                               : "application/octet-stream");
   file.close();
@@ -690,7 +691,7 @@ void handleSdUpload() {
       return sdSetError("file too large");
     }
 
-    if (sdJob.kind == SdFileKind::Text) {
+    if (sdJob.kind == SdFileKind::Text || sdJob.kind == SdFileKind::Plain) {
       if ((uint32_t)sdJob.bytes + upload.currentSize > MAX_SD_TEXT_BYTES) {
         return sdSetError("text file too large");
       }
@@ -826,6 +827,8 @@ void handleSdPrint() {
     ok = sdPrintRaw(name, error);
   } else if (kind == SdFileKind::Text) {
     ok = sdPrintText(name, (uint8_t)feed, error);
+  } else if (kind == SdFileKind::Plain) {
+    ok = sdPrintPlainText(name, (uint8_t)feed, error);
   } else {
     ok = sdPrintBitmap(name, (uint8_t)feed, error);
   }

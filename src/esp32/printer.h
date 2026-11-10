@@ -50,6 +50,7 @@ void printerSetDefault();
 void printerBitmapHeader(uint16_t width, uint16_t height);
 bool printerWrite(const uint8_t* data, size_t len);
 bool printerQr(const String& data, uint8_t moduleSize, uint8_t feed);
+bool printerQrInline(const String& data, uint8_t moduleSize);
 bool printerBarcode(const String& type, const String& data, uint8_t height,
                     uint8_t width, uint8_t feed);
 bool printerTestPage();

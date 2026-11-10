@@ -49,6 +49,7 @@ void appendCp1251(String& out, uint32_t cp) {
     case 0x00A0: out += (char)0xA0; return;  // NBSP
     case 0x00B0: out += (char)0xB0; return;  // °
     case 0x00B7: out += (char)0xB7; return;  // ·
+    case 0x2022: out += (char)0x95; return;  // •
     default:     out += '?'; return;
   }
 }
@@ -78,6 +79,7 @@ void appendCp866(String& out, uint32_t cp) {
     case 0x201C:
     case 0x201D: out += '"'; return;
     case 0x2026: out += '.'; return;
+    case 0x2022: out += '-'; return;  // • — в CP866 безопаснее дефис
     case 0x20BD:                            // ₽ — в CP866 нет, печатаем «руб.»
       out += (char)0xE0;  // р
       out += (char)0xE3;  // у
@@ -486,12 +488,10 @@ bool printerWrite(const uint8_t* data, size_t len) {
   return writeBytes(data, len);
 }
 
-bool printerQr(const String& data, uint8_t moduleSize, uint8_t feed) {
+bool printerQrInline(const String& data, uint8_t moduleSize) {
   if (data.length() == 0) return true;
   if (moduleSize < 1) moduleSize = 1;
   if (moduleSize > 8) moduleSize = 8;
-
-  if (!printerBeginJob()) return false;
 
   const uint8_t model[] = {0x1D, 0x28, 0x6B, 0x04, 0x00, 0x31, 0x41, 0x32, 0x00};
   if (!writeBytes(model, sizeof(model))) return false;
@@ -510,7 +510,14 @@ bool printerQr(const String& data, uint8_t moduleSize, uint8_t feed) {
   if (!writeBytes((const uint8_t*)data.c_str(), len)) return false;
 
   const uint8_t printCmd[] = {0x1D, 0x28, 0x6B, 0x03, 0x00, 0x31, 0x51, 0x30};
-  if (!writeBytes(printCmd, sizeof(printCmd))) return false;
+  return writeBytes(printCmd, sizeof(printCmd));
+}
+
+bool printerQr(const String& data, uint8_t moduleSize, uint8_t feed) {
+  if (data.length() == 0) return true;
+
+  if (!printerBeginJob()) return false;
+  if (!printerQrInline(data, moduleSize)) return false;
 
   if (feed) {
     const uint8_t feedCmd[] = {0x1B, 0x64, feed};

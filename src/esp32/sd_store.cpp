@@ -18,7 +18,7 @@ bool isAsciiNameChar(char c) {
 
 bool isKnownExtension(const String& ext) {
   return ext == ".bin" || ext == ".raw" || ext == ".prn" || ext == ".txt" ||
-         ext == ".md" || ext == ".csv" || ext == ".log";
+         ext == ".md" || ext == ".markdown" || ext == ".csv" || ext == ".log";
 }
 
 String lowerExt(const String& name) {
@@ -169,8 +169,9 @@ SdFileKind sdFileKind(const String& name) {
   if (!sdIsAllowedName(name)) return SdFileKind::Invalid;
   const String ext = lowerExt(name);
   if (ext == ".prn") return SdFileKind::Raw;
-  if (ext == ".txt" || ext == ".md" || ext == ".csv" || ext == ".log") {
-    return SdFileKind::Text;
+  if (ext == ".txt") return SdFileKind::Text;
+  if (ext == ".md" || ext == ".markdown" || ext == ".csv" || ext == ".log") {
+    return SdFileKind::Plain;
   }
   return SdFileKind::Image;
 }
@@ -180,6 +181,7 @@ const char* sdKindName(SdFileKind kind) {
     case SdFileKind::Image: return "image";
     case SdFileKind::Raw: return "raw";
     case SdFileKind::Text: return "text";
+    case SdFileKind::Plain: return "plain";
     default: return "invalid";
   }
 }
@@ -247,7 +249,8 @@ bool sdReadBitmapHeader(const String& name, uint16_t& width, uint16_t& height,
   return true;
 }
 
-bool sdPrintBitmap(const String& name, uint8_t feed, String& error) {
+bool printBitmapFile(const String& name, uint8_t feed, bool beginJob,
+                     String& error) {
   error = "";
   if (!mounted) {
     error = "sd not mounted";
@@ -290,7 +293,7 @@ bool sdPrintBitmap(const String& name, uint8_t feed, String& error) {
     return false;
   }
 
-  if (!printerBeginJob()) {
+  if (beginJob && !printerBeginJob()) {
     f.close();
     error = "printer not ready";
     return false;
@@ -322,6 +325,14 @@ bool sdPrintBitmap(const String& name, uint8_t feed, String& error) {
     return false;
   }
   return true;
+}
+
+bool sdPrintBitmap(const String& name, uint8_t feed, String& error) {
+  return printBitmapFile(name, feed, true, error);
+}
+
+bool sdPrintBitmapInline(const String& name, String& error) {
+  return printBitmapFile(name, 0, false, error);
 }
 
 bool sdPrintRaw(const String& name, String& error) {
@@ -381,6 +392,49 @@ bool sdPrintText(const String& name, uint8_t feed, String& error) {
 
   RichTextPrinter printer;
   if (!printer.begin(error)) {
+    f.close();
+    return false;
+  }
+
+  uint8_t buffer[256];
+  while (f.available()) {
+    const size_t got = f.read(buffer, sizeof(buffer));
+    if (got == 0) break;
+    if (!printer.write((const char*)buffer, got, error)) {
+      f.close();
+      return false;
+    }
+  }
+
+  f.close();
+  return printer.end(feed, error);
+}
+
+bool sdPrintPlainText(const String& name, uint8_t feed, String& error) {
+  error = "";
+  if (!mounted) {
+    error = "sd not mounted";
+    return false;
+  }
+  if (sdFileKind(name) != SdFileKind::Plain) {
+    error = "bad file name";
+    return false;
+  }
+
+  File f = SD.open(sdPath(name), FILE_READ);
+  if (!f) {
+    error = "file not found";
+    return false;
+  }
+
+  if (f.size() > MAX_SD_TEXT_BYTES) {
+    f.close();
+    error = "text file too large";
+    return false;
+  }
+
+  RichTextPrinter printer;
+  if (!printer.beginPlain(error)) {
     f.close();
     return false;
   }
