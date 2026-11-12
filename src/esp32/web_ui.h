@@ -136,8 +136,6 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
       <div class="hint" id="textSource" hidden></div>
       <div class="actions">
         <button class="primary" id="btnText">Печать</button>
-        <button id="btnTest">Тестовая страница</button>
-        <button id="btnFeedTop">Подать 3 строки</button>
       </div>
     </div>
 
@@ -452,6 +450,7 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
       </div>
       <div class="actions">
         <button class="primary" id="btnSaveCfg">Сохранить настройки</button>
+        <button id="btnTestPage">Тестовая страница</button>
         <button id="btnCodePageTest">Тест кодовых страниц</button>
         <button id="btnCommandTest">Тест команд</button>
         <button id="btnSelfTest">Самотест принтера</button>
@@ -768,13 +767,12 @@ async function doTest() {
   try { await api('/api/test', { method: 'POST' }); toast('Тестовая страница отправлена'); }
   catch (e) { toast(e.message, false); }
 }
-$('#btnTest').addEventListener('click', doTest);
+$('#btnTestPage').addEventListener('click', doTest);
 
 async function doFeed(lines) {
   try { await jsonPost('/api/feed', { lines }); toast('Бумага подана'); }
   catch (e) { toast(e.message, false); }
 }
-$('#btnFeedTop').addEventListener('click', () => doFeed(3));
 $('#btnFeed').addEventListener('click', () => doFeed(Number($('#feedLines').value) || 3));
 
 /* ---------- Markdown: конвертация в теги ---------- */
