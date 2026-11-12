@@ -111,7 +111,6 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
 
 <nav class="tabs">
   <button class="tab active" data-tab="text">Текст</button>
-  <button class="tab" data-tab="markdown">Markdown</button>
   <button class="tab" data-tab="image">Фото</button>
   <button class="tab" data-tab="code">QR / Штрихкод</button>
   <button class="tab" data-tab="sd">SD-карта</button>
@@ -125,10 +124,16 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
       <h2>Текст</h2>
       <label for="text">Содержимое</label>
       <textarea id="text" rows="8" placeholder="[setSize,L]ЗАГОЛОВОК&#10;[setSize,M]Обычный текст, [boldOn]жирное слово[boldOff]."></textarea>
-      <div class="hint"><span id="charCount">0</span> символов · теги в квадратных скобках выполняются по порядку, закрывающие не нужны.</div>
+      <div class="hint"><span id="charCount">0</span> символов · <span id="textModeHint">теги в квадратных скобках выполняются по порядку, закрывающие не нужны.</span></div>
       <div class="grid">
+        <label>Формат<select id="textFormat">
+          <option value="rich">Текст с форматированием</option>
+          <option value="markdown">Markdown</option>
+          <option value="plain">Текст без форматирования</option>
+        </select></label>
         <label>Подача в конце, строк<input id="feed" type="number" min="0" max="20" value="2"></label>
       </div>
+      <div class="hint" id="textSource" hidden></div>
       <div class="actions">
         <button class="primary" id="btnText">Печать</button>
         <button id="btnTest">Тестовая страница</button>
@@ -136,7 +141,7 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="textRichPanel">
       <h3>Форматирование</h3>
       <div class="hint">Кнопка вставляет тег в позицию курсора. Действие тега продолжается до следующего тега. Пример: <code>[setSize,L]</code>Заголовок<code>[setSize,S]</code>обычный текст.</div>
 
@@ -287,16 +292,12 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
 
   <section class="pane" id="pane-markdown">
     <div class="card">
-      <h2>Markdown → текст с тегами</h2>
-      <div class="grid">
-        <label>Файл .md с устройства<input id="mdFile" type="file" accept=".md,.markdown,text/markdown,text/plain"></label>
-        <label>Или .md с SD<select id="mdSdSelect"><option value="">— выберите —</option></select></label>
-      </div>
+      <h2>Markdown</h2>
+      <div class="hint">Исходник Markdown редактируется в поле «Содержимое» выше. Файл <code>.md</code> открывается из раздела «SD-карта» кнопкой «Открыть». ESP32 Markdown не разбирает, конвертация идёт в браузере.</div>
       <div class="actions">
-        <button id="btnMdLoadSd">Загрузить с SD</button>
-        <button class="primary" id="btnMdConvert">Конвертировать</button>
+        <button class="primary" id="btnMdConvert">Конвертировать и просмотреть</button>
       </div>
-      <div class="hint" id="mdStatus">Загрузите .md и нажмите «Конвертировать». Конвертация выполняется в браузере, ESP32 Markdown не разбирает.</div>
+      <div class="hint" id="mdStatus">Введите Markdown в поле выше и нажмите «Конвертировать и просмотреть».</div>
     </div>
 
     <div class="card">
@@ -325,9 +326,9 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
       </div>
       <div class="actions">
         <button id="btnMdSaveSd" disabled>Сохранить .txt на SD</button>
-        <button id="btnMdToText" disabled>В текстовое поле</button>
+        <button id="btnMdToText" disabled>В текст с тегами</button>
       </div>
-      <div class="hint">Теги и картинки работают только в .txt. Сам .md с карты печатается как обычный текст.</div>
+      <div class="hint">«В текст с тегами» переключает результат в режим «Текст с форматированием». Сам .md, напечатанный через <code>/api/sd/print</code>, идёт как обычный текст.</div>
     </div>
   </section>
 
@@ -344,6 +345,7 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
       </div>
       <div class="preview-wrap"><canvas id="preview" width="384" height="200"></canvas></div>
       <div class="hint" id="imgInfo">Выберите изображение. Ширина всегда 384 точки (48 мм).</div>
+      <div class="hint" id="imgSdNote" hidden></div>
       <div class="actions">
         <button class="primary" id="btnImg">Печать фото</button>
         <button id="btnImgRefresh">Обновить предпросмотр</button>
@@ -409,11 +411,11 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
     <div class="card">
       <h3>Загрузить файл</h3>
       <div class="grid">
-        <label>Файл (.bin, .raw, .prn, .txt, .md, .markdown, .csv, .log)<input id="sdUploadFile" type="file" accept=".bin,.raw,.prn,.txt,.md,.markdown,.csv,.log,application/octet-stream,text/plain"></label>
+        <label>Файл (.bin, .raw, .prn, .txt, .md, .csv, .log, .png, .jpg, .jpeg, .gif, .bmp, .webp)<input id="sdUploadFile" type="file" accept=".bin,.raw,.prn,.txt,.md,.markdown,.csv,.log,.png,.jpg,.jpeg,.gif,.bmp,.webp,image/*,application/octet-stream,text/plain"></label>
         <label>Имя на карте<input id="sdUploadName" placeholder="как в файле"></label>
       </div>
       <div class="actions"><button class="primary" id="btnSdUpload">Загрузить</button></div>
-      <div class="hint">.bin/.raw — 1-битное изображение с заголовком; .prn — сырой ESC/POS; .txt — текст с тегами; .md/.markdown/.csv/.log — обычный текст без разбора тегов.</div>
+      <div class="hint">.bin/.raw — 1-битное изображение с заголовком; .prn — сырой ESC/POS; .txt — текст с тегами; .md/.markdown/.csv/.log — обычный текст без разбора тегов; .png/.jpg/.jpeg/.gif/.bmp/.webp — исходные картинки сохраняются как есть. Обработка и сохранение в .bin — во вкладке «Фото».</div>
     </div>
 
     <div class="card">
@@ -425,7 +427,8 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
       <h3>Просмотр</h3>
       <div class="preview-wrap"><canvas id="sdPreview" width="384" height="200"></canvas></div>
       <pre id="sdTextPreview" class="sd-text" hidden></pre>
-      <div class="hint" id="sdPreviewInfo">Нажмите «Просмотр» у файла изображения или текста.</div>
+      <div class="hint" id="sdPreviewInfo">Нажмите «Просмотр» у файла изображения или «Открыть» у текста.</div>
+      <div class="actions"><button class="primary" id="btnSdRawPrint" hidden>Печать .prn</button></div>
     </div>
   </section>
 
@@ -493,7 +496,7 @@ GET  /api/info                   возможности и список API
 GET  /api/config                 настройки
 POST /api/config                 {"heat":120,"codePage":6,"baud":9600,"dtr":true}
 GET  /api/printer/status         опрос принтера (бумага/статус)
-POST /api/text                   {"text":"...","size":"M","align":"C"}
+POST /api/text                   {"text":"...","size":"M","align":"C","plain":false}
 POST /api/bitmap                 multipart file: заголовок + 1-битные строки
 POST /api/qr                     {"data":"...","module":4}
 POST /api/barcode                {"type":"CODE128","data":"..."}
@@ -502,6 +505,7 @@ POST /api/raw                    multipart file: сырой ESC/POS
 POST /api/test                   тестовая страница
 POST /api/test/self              самотест принтера (DC2 T)
 POST /api/test/codepage          тест кодовых страниц (6/7)
+POST /api/test/barcode           тест всех типов штрихкодов
 GET  /api/print?text=...         печать текста из URL
 POST /api/restart                перезагрузка
 POST /api/wifi/reset             сброс Wi-Fi и перезагрузка
@@ -587,7 +591,7 @@ $$('.tab').forEach((btn) => btn.addEventListener('click', () => {
   const name = btn.dataset.tab;
   $$('.pane').forEach((p) => p.classList.toggle('active', p.id === 'pane-' + name));
   if (name === 'sd') refreshSd();
-  if (name === 'markdown') refreshMdSdList();
+  if (name === 'text') applyTextFormat();
 }));
 
 /* ---------- статус ---------- */
@@ -611,8 +615,39 @@ async function refreshStatus() {
 }
 
 /* ---------- текст ---------- */
+const TEXT_HINTS = {
+  rich: 'теги в квадратных скобках выполняются по порядку, закрывающие не нужны.',
+  markdown: 'исходник Markdown; перед печатью нажмите «Конвертировать и просмотреть».',
+  plain: 'текст печатается как есть, теги не разбираются.'
+};
+const TEXT_PLACEHOLDERS = {
+  rich: '[setSize,L]ЗАГОЛОВОК\n[setSize,M]Обычный текст, [boldOn]жирное слово[boldOff].',
+  markdown: '# Заголовок\n\nОбычный текст, **жирное слово** и [ссылка](https://example.com).\n\n- пункт списка',
+  plain: 'Обычный текст без разметки. Квадратные скобки печатаются как есть.'
+};
+
+function applyTextFormat() {
+  const fmt = $('#textFormat').value;
+  $('#textRichPanel').hidden = fmt !== 'rich';
+  $('#pane-markdown').classList.toggle('active', fmt === 'markdown');
+  $('#textModeHint').textContent = TEXT_HINTS[fmt] || TEXT_HINTS.rich;
+  $('#text').placeholder = TEXT_PLACEHOLDERS[fmt] || TEXT_PLACEHOLDERS.rich;
+}
+
+function setTextFormat(fmt) {
+  $('#textFormat').value = fmt;
+  applyTextFormat();
+}
+
 function updateCharCount() { $('#charCount').textContent = $('#text').value.length; }
-$('#text').addEventListener('input', updateCharCount);
+$('#text').addEventListener('input', () => {
+  updateCharCount();
+  if ($('#textFormat').value === 'markdown' && md.converted &&
+      md.lastConvertedText !== $('#text').value) {
+    mdSetStatus('Исходник изменён — нажмите «Конвертировать и просмотреть»');
+  }
+});
+$('#textFormat').addEventListener('change', applyTextFormat);
 
 function insertTag(tag) {
   const ta = $('#text');
@@ -672,11 +707,15 @@ $('#btnSleepAfter').addEventListener('click', () => {
 });
 
 async function printText() {
+  const format = $('#textFormat').value;
+  if (format === 'markdown') return printMarkdown();
+
   const text = $('#text').value;
   if (!text.trim()) return toast('Введите текст', false);
   const payload = {
     text,
-    feed: Number($('#feed').value) || 0
+    feed: Number($('#feed').value) || 0,
+    plain: format === 'plain'
   };
   const btn = $('#btnText');
   btn.disabled = true;
@@ -685,6 +724,45 @@ async function printText() {
   finally { btn.disabled = false; }
 }
 $('#btnText').addEventListener('click', printText);
+
+// Печать Markdown: конвертирует исходник из поля «Текст» (если нужно),
+// дожидается картинок, загружает их на SD и печатает готовые теги.
+async function printMarkdown() {
+  const src = $('#text').value;
+  if (!src.trim()) return toast('Введите Markdown', false);
+
+  const btn = $('#btnText');
+  btn.disabled = true;
+  try {
+    if (!md.converted || md.lastConvertedText !== src) {
+      md.sourceText = src;
+      mdConvert();
+      if (!md.model) return;
+    }
+    if (md.preparePromise) await md.preparePromise;
+    await mdUploadIfNeeded();
+
+    const bad = md.images.filter((x) => x.status !== 'local' && x.status !== 'uploaded');
+    if (bad.length && !confirm('Не все картинки готовы. Они будут заменены alt/URL. Продолжить?')) return;
+
+    const tags = mdRenderTags(md.model, {
+      qrLinks: $('#mdQrLinks').checked,
+      images: $('#mdImgSd').checked,
+      includeReady: true
+    });
+    const bytes = new TextEncoder().encode(tags).length;
+    if (bytes > 4096) {
+      toast('Документ ' + fmtBytes(bytes) + ' — больше 4096 байт. Сохраните .txt на SD и печатайте с карты', false);
+      return;
+    }
+    await jsonPost('/api/text', { text: tags, feed: Number($('#feed').value) || 0 });
+    toast('Markdown отправлен на печать');
+  } catch (e) {
+    toast(e.message, false);
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 async function doTest() {
   try { await api('/api/test', { method: 'POST' }); toast('Тестовая страница отправлена'); }
@@ -703,6 +781,7 @@ $('#btnFeed').addEventListener('click', () => doFeed(Number($('#feedLines').valu
 let md = {
   sourceName: '',
   sourceText: '',
+  lastConvertedText: '',
   model: null,
   tags: '',
   images: [],
@@ -1644,6 +1723,7 @@ function mdReleasePreviews() {
 function mdSourceLoaded(name, text) {
   md.sourceName = name || 'document.md';
   md.sourceText = text;
+  md.lastConvertedText = '';
   md.converted = false;
   mdReleasePreviews();
   md.model = null;
@@ -1653,15 +1733,20 @@ function mdSourceLoaded(name, text) {
   $('#btnMdSaveSd').disabled = true;
   $('#btnMdToText').disabled = true;
   $('#mdTags').textContent = '';
-  $('#mdPreview').innerHTML = '<span class="muted">Нажмите «Конвертировать».</span>';
+  $('#mdPreview').innerHTML = '<span class="muted">Нажмите «Конвертировать и просмотреть».</span>';
+  $('#text').value = text;
+  updateCharCount();
+  setTextFormat('markdown');
   renderMdImages();
   const base = md.sourceName.replace(/\.[^.]+$/, '') || 'document';
   $('#mdSaveName').value = base + '.txt';
-  mdSetStatus('Загружено: ' + md.sourceName + ' · нажмите «Конвертировать»');
+  mdSetStatus('Открыто с SD: ' + md.sourceName + ' · нажмите «Конвертировать и просмотреть»');
 }
 
 function mdConvert() {
-  if (!md.sourceText.trim()) return toast('Сначала загрузите .md', false);
+  md.sourceText = $('#text').value;
+  md.lastConvertedText = md.sourceText;
+  if (!md.sourceText.trim()) return toast('Введите Markdown', false);
   md.model = mdParseBlocks(md.sourceText);
   const found = mdCollectImages(md.model);
   mdReleasePreviews();
@@ -1693,49 +1778,21 @@ function renderMdOutput() {
   $('#mdPreview').hidden = showTags;
 }
 
-function mdFileLoaded(file) {
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => mdSourceLoaded(file.name, String(reader.result || ''));
-  reader.onerror = () => toast('Не удалось прочитать файл', false);
-  reader.readAsText(file, 'utf-8');
-}
-
 async function mdLoadFromSd(name) {
   if (!name) return toast('Выберите .md с SD', false);
   try {
     const res = await fetch('/api/sd/file?name=' + encodeURIComponent(name));
     if (!res.ok) throw new Error('HTTP ' + res.status);
     mdSourceLoaded(name, await res.text());
-    document.querySelector('[data-tab=markdown]').click();
+    document.querySelector('[data-tab=text]').click();
+    mdConvert();
   } catch (e) { toast(e.message, false); }
 }
 
-$('#mdFile').addEventListener('change', (e) => {
-  const f = e.target.files && e.target.files[0];
-  mdFileLoaded(f);
-});
-
-$('#btnMdLoadSd').addEventListener('click', () => mdLoadFromSd($('#mdSdSelect').value));
 $('#btnMdConvert').addEventListener('click', mdConvert);
 $('#mdQrLinks').addEventListener('change', renderMdOutput);
 $('#mdImgSd').addEventListener('change', renderMdOutput);
 $('#mdShowTags').addEventListener('change', renderMdOutput);
-
-function refreshMdSdList() {
-  const sel = $('#mdSdSelect');
-  if (!sel) return;
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">— выберите —</option>';
-  sdFiles.filter((f) => /\.(md|markdown)$/i.test(f.name)).sort((a, b) => a.name.localeCompare(b.name))
-    .forEach((f) => {
-      const o = document.createElement('option');
-      o.value = f.name;
-      o.textContent = f.name;
-      sel.appendChild(o);
-    });
-  if (cur) sel.value = cur;
-}
 
 async function mdUploadIfNeeded() {
   for (const im of md.images) {
@@ -1789,6 +1846,7 @@ $('#btnMdToText').addEventListener('click', async () => {
   const tags = mdRenderTags(md.model, { qrLinks: $('#mdQrLinks').checked, images: true });
   $('#text').value = tags;
   updateCharCount();
+  setTextFormat('rich');
   document.querySelector('[data-tab=text]').click();
   const bytes = new TextEncoder().encode(tags).length;
   const hasUnprinted = md.images.some((x) => x.status !== 'local' && x.status !== 'uploaded');
@@ -1803,8 +1861,10 @@ $('#btnMdToText').addEventListener('click', async () => {
 
 /* ---------- изображение ---------- */
 let img = null;
+let imgTargetWidth = 384;
 let currentBitmap = null;
 let sdFiles = [];
+let sdRawName = '';
 let previewTimer = 0;
 
 function schedulePreview() {
@@ -1827,13 +1887,14 @@ function getGray(imageData, w, h, brightness, contrast) {
 
 function ditherFloyd(gray, w, h) {
   const buf = new Float32Array(gray);
-  const bits = new Uint8Array((w * h) >> 3);
+  const stride = Math.ceil(w / 8);
+  const bits = new Uint8Array(stride * h);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       const old = buf[i];
       const nv = old < 128 ? 0 : 255;
-      if (nv === 0) bits[i >> 3] |= 0x80 >> (x & 7);
+      if (nv === 0) bits[y * stride + (x >> 3)] |= 0x80 >> (x & 7);
       const err = old - nv;
       if (x + 1 < w) buf[i + 1] += err * 7 / 16;
       if (y + 1 < h) {
@@ -1848,40 +1909,49 @@ function ditherFloyd(gray, w, h) {
 
 function ditherOrdered(gray, w, h) {
   const m = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
-  const bits = new Uint8Array((w * h) >> 3);
+  const stride = Math.ceil(w / 8);
+  const bits = new Uint8Array(stride * h);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = y * w + x;
       const t = (m[y & 3][x & 3] + 0.5) / 16 * 255;
-      if (gray[i] < t) bits[i >> 3] |= 0x80 >> (x & 7);
+      if (gray[i] < t) bits[y * stride + (x >> 3)] |= 0x80 >> (x & 7);
     }
   }
   return bits;
 }
 
 function ditherThreshold(gray, w, h) {
-  const bits = new Uint8Array((w * h) >> 3);
-  for (let i = 0; i < gray.length; i++) {
-    if (gray[i] < 128) bits[i >> 3] |= 0x80 >> (i & 7);
+  const stride = Math.ceil(w / 8);
+  const bits = new Uint8Array(stride * h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (gray[y * w + x] < 128) bits[y * stride + (x >> 3)] |= 0x80 >> (x & 7);
+    }
   }
   return bits;
+}
+
+function bitsImageData(ctx, bits, w, h) {
+  const id = ctx.createImageData(w, h);
+  const stride = Math.ceil(w / 8);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = y * w + x;
+      const bit = (bits[y * stride + (x >> 3)] >> (7 - (x & 7))) & 1;
+      const p = i * 4;
+      const v = bit ? 0 : 255;
+      id.data[p] = v; id.data[p + 1] = v; id.data[p + 2] = v; id.data[p + 3] = 255;
+    }
+  }
+  return id;
 }
 
 function drawPreview(bits, w, h) {
   const c = $('#preview');
   c.width = w; c.height = h;
   const ctx = c.getContext('2d');
-  const id = ctx.createImageData(w, h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = y * w + x;
-      const bit = (bits[i >> 3] >> (7 - (x & 7))) & 1;
-      const p = i * 4;
-      const v = bit ? 0 : 255;
-      id.data[p] = v; id.data[p + 1] = v; id.data[p + 2] = v; id.data[p + 3] = 255;
-    }
-  }
-  ctx.putImageData(id, 0, 0);
+  ctx.putImageData(bitsImageData(ctx, bits, w, h), 0, 0);
 }
 
 function estimateSeconds(h, bytes) {
@@ -1890,8 +1960,8 @@ function estimateSeconds(h, bytes) {
   return Math.ceil(data + head);
 }
 
-function imageToBitmap(im, brightness, contrast, method, invert) {
-  const W = 384;
+function imageToBitmap(im, brightness, contrast, method, invert, targetWidth) {
+  const W = targetWidth || 384;
   const MAXH = 2000;
   let drawW = W;
   let h = Math.round(im.height * W / im.width);
@@ -1926,13 +1996,15 @@ function renderPreview() {
     Number($('#brightness').value),
     Number($('#contrast').value),
     $('#dither').value,
-    $('#invert').checked
+    $('#invert').checked,
+    imgTargetWidth
   );
   const { w, h, bits } = currentBitmap;
   drawPreview(bits, w, h);
   const bytes = 4 + bits.length;
   const secs = estimateSeconds(h, bytes);
-  $('#imgInfo').textContent = w + '×' + h + ' px · ' + bytes + ' байт · ~' +
+  const label = img.sourceName ? img.sourceName + ' · ' : '';
+  $('#imgInfo').textContent = label + w + '×' + h + ' px · ' + bytes + ' байт · ~' +
     secs + ' с при 9600 бод' + (secs > 60 ? ' · долго' : '');
 }
 
@@ -1941,7 +2013,14 @@ $('#file').addEventListener('change', (e) => {
   if (!f) return;
   const url = URL.createObjectURL(f);
   const im = new Image();
-  im.onload = () => { img = im; URL.revokeObjectURL(url); renderPreview(); };
+  im.onload = () => {
+    img = im;
+    imgTargetWidth = 384;
+    im.sourceName = '';
+    $('#imgSdNote').hidden = true;
+    URL.revokeObjectURL(url);
+    renderPreview();
+  };
   im.onerror = () => { URL.revokeObjectURL(url); toast('Не удалось открыть изображение', false); };
   im.src = url;
 });
@@ -2069,6 +2148,7 @@ function renderSdList() {
     const dims = kind === 'raw' ? 'raw ESC/POS'
       : kind === 'text' ? 'текст с тегами'
       : kind === 'plain' ? 'текст без тегов'
+      : kind === 'source' ? 'исходное изображение'
       : f.valid ? (f.width + '×' + f.height) : 'неверный формат';
     meta.textContent = fmtBytes(f.size) + ' · ' + dims;
     info.append(name, meta);
@@ -2076,12 +2156,24 @@ function renderSdList() {
     const actions = document.createElement('div');
     actions.className = 'sd-actions';
 
-    const printBtn = mkBtn('Печать', () => printSd(f.name), 'primary');
-    if (kind === 'image' && f.valid === false) printBtn.disabled = true;
-    actions.append(printBtn);
-    if (kind !== 'raw') actions.append(mkBtn('Просмотр', () => previewSd(f.name)));
-    if (kind === 'plain' && /\.(md|markdown)$/i.test(f.name)) {
-      actions.append(mkBtn('В Markdown', () => mdLoadFromSd(f.name)));
+    if (kind === 'text') {
+      actions.append(mkBtn('Открыть', () => openSdText(f.name, false), 'primary'));
+      actions.append(mkBtn('Просмотр', () => previewSd(f.name)));
+    } else if (kind === 'plain') {
+      const isMd = /\.(md|markdown)$/i.test(f.name);
+      actions.append(mkBtn('Открыть', () => (isMd
+        ? mdLoadFromSd(f.name) : openSdText(f.name, true)), 'primary'));
+      actions.append(mkBtn('Просмотр', () => previewSd(f.name)));
+    } else if (kind === 'image') {
+      const openBtn = mkBtn('Открыть', () => openSdImage(f.name), 'primary');
+      if (f.valid === false) openBtn.disabled = true;
+      actions.append(openBtn);
+      actions.append(mkBtn('Просмотр', () => previewSd(f.name)));
+    } else if (kind === 'raw') {
+      actions.append(mkBtn('Открыть', () => previewSdRaw(f.name), 'primary'));
+    } else if (kind === 'source') {
+      actions.append(mkBtn('Открыть', () => openSdSourceImage(f.name), 'primary'));
+      actions.append(mkBtn('Просмотр', () => previewSd(f.name)));
     }
     actions.append(mkBtn('Скачать', () => downloadSd(f.name)));
     actions.append(mkBtn('Удалить', () => deleteSd(f.name), 'danger'));
@@ -2100,7 +2192,6 @@ async function refreshSd() {
     $('#sdUsed').textContent = d.mounted ? fmtBytes(d.used) : '—';
     $('#sdFree').textContent = d.mounted ? fmtBytes(d.free) : '—';
     renderSdList();
-    refreshMdSdList();
     if (!d.mounted) $('#sdList').textContent = 'Карта не подключена';
   } catch (e) {
     $('#sdState').textContent = 'ошибка';
@@ -2115,9 +2206,137 @@ async function printSd(name) {
   } catch (e) { toast(e.message, false); }
 }
 
+// Текстовые файлы открываются в поле «Текст»: там их можно править,
+// а печать идёт уже по отредактированной версии через /api/text.
+async function openSdText(name, plain) {
+  try {
+    const res = await fetch('/api/sd/file?name=' + encodeURIComponent(name));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const text = await res.text();
+    $('#text').value = text;
+    setTextFormat(plain ? 'plain' : 'rich');
+    const src = $('#textSource');
+    src.hidden = false;
+    src.textContent = 'Открыто с SD: ' + name + (plain
+      ? ' · обычный текст, теги не разбираются'
+      : ' · .txt, теги выполняются');
+    updateCharCount();
+    document.querySelector('[data-tab=text]').click();
+    const bytes = new TextEncoder().encode(text).length;
+    if (bytes > 4096) {
+      toast('Файл ' + fmtBytes(bytes) + ' больше лимита /api/text (4096 байт) — сократите текст или печатайте его прямо с SD', false);
+    } else {
+      toast('Открыто: ' + name);
+    }
+  } catch (e) { toast(e.message, false); }
+}
+
+// Готовый 1-битный .bin с SD открывается во вкладке «Фото» как обычная
+// картинка: яркость, контраст, инверсия и дизеринг снова применяются.
+async function openSdImage(name) {
+  try {
+    const res = await fetch('/api/sd/file?name=' + encodeURIComponent(name));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const buf = new Uint8Array(await res.arrayBuffer());
+    if (buf.length < 4) throw new Error('короткий файл');
+    const dv = new DataView(buf.buffer);
+    const w = dv.getUint16(0, true);
+    const h = dv.getUint16(2, true);
+    if (!w || !h || w > 384 || h > 2000) throw new Error('неверный размер');
+    const stride = Math.ceil(w / 8);
+    const need = stride * h;
+    if (buf.length < 4 + need) throw new Error('короткий файл');
+
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.putImageData(bitsImageData(ctx, buf.subarray(4, 4 + need), w, h), 0, 0);
+
+    const im = new Image();
+    await new Promise((resolve, reject) => {
+      im.onload = resolve;
+      im.onerror = () => reject(new Error('не удалось открыть изображение'));
+      im.src = c.toDataURL('image/png');
+    });
+    im.sourceName = name;
+    img = im;
+    imgTargetWidth = w;
+    $('#file').value = '';
+    const note = $('#imgSdNote');
+    note.hidden = false;
+    note.textContent = 'Файл с SD уже 1-битный: дизеринг не добавит полутонов, ' +
+      'но яркость, контраст и инверсия применяются.';
+    renderPreview();
+    document.querySelector('[data-tab=image]').click();
+    toast('Открыто: ' + name);
+  } catch (e) { toast(e.message, false); }
+}
+
+// Исходная картинка (.png/.jpg/...) с SD: открывается во вкладке «Фото»
+// как обычное изображение, сохраняется на карту уже как 1-битный .bin.
+async function openSdSourceImage(name) {
+  try {
+    const res = await fetch('/api/sd/file?name=' + encodeURIComponent(name));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const im = await mdLoadImage(blob);
+
+    img = im;
+    imgTargetWidth = 384;
+    im.sourceName = name;
+    $('#file').value = '';
+    $('#sdSaveName').value = name.replace(/\.[^.]+$/, '') + '.bin';
+
+    const note = $('#imgSdNote');
+    note.hidden = false;
+    note.textContent = 'Исходное изображение с SD: настройки применяются, ' +
+      'при сохранении на карту оно конвертируется в 1-битный .bin.';
+
+    renderPreview();
+    document.querySelector('[data-tab=image]').click();
+    toast('Открыто: ' + name);
+  } catch (e) { toast(e.message, false); }
+}
+
+// .prn — готовый поток ESC/POS. Редактировать его в браузере нечем,
+// поэтому показываем hex и печатаем только по отдельной кнопке.
+async function previewSdRaw(name) {
+  try {
+    const res = await fetch('/api/sd/file?name=' + encodeURIComponent(name));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const buf = new Uint8Array(await res.arrayBuffer());
+    const limit = 2048;
+    let out = '';
+    for (let i = 0; i < Math.min(buf.length, limit); i++) {
+      out += buf[i].toString(16).padStart(2, '0') + ' ';
+      if ((i + 1) % 16 === 0) out += '\n';
+    }
+    if (buf.length > limit) out += '\n… показаны первые ' + limit + ' байт';
+    $('#sdPreview').hidden = true;
+    const pre = $('#sdTextPreview');
+    pre.hidden = false;
+    pre.textContent = out || '(пустой файл)';
+    $('#sdPreviewInfo').textContent = name + ' · ' + fmtBytes(buf.length) +
+      ' · raw ESC/POS, редактировать нельзя';
+    sdRawName = name;
+    $('#btnSdRawPrint').hidden = false;
+    document.querySelector('[data-tab=sd]').click();
+  } catch (e) { toast(e.message, false); }
+}
+
+$('#btnSdRawPrint').addEventListener('click', () => {
+  if (!sdRawName) return;
+  if (!confirm('Отправить ' + sdRawName + ' на принтер как есть?\n\n' +
+    'Это готовые ESC/POS-команды, содержимое не редактируется.')) return;
+  printSd(sdRawName);
+});
+
 async function previewSd(name) {
+  sdRawName = '';
+  $('#btnSdRawPrint').hidden = true;
   const file = sdFiles.find((x) => x.name === name);
   if (file && (file.kind === 'text' || file.kind === 'plain')) return previewSdText(name);
+  if (file && file.kind === 'source') return previewSdSource(name);
 
   try {
     $('#sdTextPreview').hidden = true;
@@ -2155,6 +2374,28 @@ async function previewSd(name) {
   } catch (e) {
     toast(e.message, false);
   }
+}
+
+async function previewSdSource(name) {
+  try {
+    const res = await fetch('/api/sd/file?name=' + encodeURIComponent(name));
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const blob = await res.blob();
+    const im = await mdLoadImage(blob);
+    const scale = Math.min(1, 384 / im.width);
+    const w = Math.max(1, Math.round(im.width * scale));
+    const h = Math.max(1, Math.round(im.height * scale));
+    const c = $('#sdPreview');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(im, 0, 0, w, h);
+    $('#sdTextPreview').hidden = true;
+    $('#sdPreview').hidden = false;
+    $('#sdPreviewInfo').textContent = name + ' · ' + im.width + '×' + im.height +
+      ' · ' + fmtBytes(blob.size) + ' · исходное изображение, .bin — во вкладке «Фото»';
+  } catch (e) { toast(e.message, false); }
 }
 
 async function previewSdText(name) {
@@ -2198,8 +2439,15 @@ async function uploadSd() {
   if (!f) return toast('Выберите файл', false);
 
   let name = $('#sdUploadName').value.trim() || f.name;
-  if (!/\.(bin|raw|prn|txt|md|markdown|csv|log)$/i.test(name)) {
-    name += /^text\//i.test(f.type || '') ? '.txt' : '.bin';
+  if (!/\.(bin|raw|prn|txt|md|markdown|csv|log|png|jpe?g|gif|bmp|webp)$/i.test(name)) {
+    const t = f.type || '';
+    if (/^text\//i.test(t)) name += '.txt';
+    else if (t === 'image/png') name += '.png';
+    else if (t === 'image/jpeg') name += '.jpg';
+    else if (t === 'image/gif') name += '.gif';
+    else if (t === 'image/bmp') name += '.bmp';
+    else if (t === 'image/webp') name += '.webp';
+    else name += '.bin';
   }
 
   if (sdFiles.some((x) => x.name.toLowerCase() === name.toLowerCase())) {

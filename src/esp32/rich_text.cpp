@@ -421,3 +421,10 @@ bool printerRichText(const String& markup, uint8_t feed, String& error) {
   if (!printer.write(markup.c_str(), markup.length(), error)) return false;
   return printer.end(feed, error);
 }
+
+bool printerPlainText(const String& text, uint8_t feed, String& error) {
+  RichTextPrinter printer;
+  if (!printer.beginPlain(error)) return false;
+  if (!printer.write(text.c_str(), text.length(), error)) return false;
+  return printer.end(feed, error);
+}

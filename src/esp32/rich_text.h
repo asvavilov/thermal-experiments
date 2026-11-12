@@ -27,3 +27,6 @@ class RichTextPrinter {
 
 // Печатает текст с тегами за один вызов.
 bool printerRichText(const String& markup, uint8_t feed, String& error);
+
+// Печатает текст как есть: квадратные скобки не разбираются.
+bool printerPlainText(const String& text, uint8_t feed, String& error);

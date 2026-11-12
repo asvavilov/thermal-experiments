@@ -2,7 +2,9 @@
 
 #include <Arduino.h>
 
-enum class SdFileKind : uint8_t { Invalid, Image, Raw, Text, Plain };
+// Image — готовый 1-битный .bin/.raw, Source — исходная картинка
+// (.png/.jpg/...), которую ещё нужно обработать и сохранить как .bin.
+enum class SdFileKind : uint8_t { Invalid, Image, Source, Raw, Text, Plain };
 
 bool sdBegin();
 void sdEnd();

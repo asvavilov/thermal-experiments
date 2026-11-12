@@ -305,6 +305,7 @@ void handleText() {
   bool underline = false;
   char align = 'L';
   uint8_t feed = DEFAULT_FEED;
+  bool plain = false;
 
   String trimmed = body;
   trimmed.trim();
@@ -318,6 +319,7 @@ void handleText() {
     bold = doc["bold"] | false;
     underline = doc["underline"] | false;
     align = alignFromString(doc["align"].as<String>(), 'L');
+    plain = doc["plain"] | false;
     int f = doc["feed"] | DEFAULT_FEED;
     if (f < 0) f = 0;
     if (f > 20) f = 20;
@@ -329,9 +331,15 @@ void handleText() {
   if (text.length() == 0) return sendError(400, "text is empty");
   if (text.length() > MAX_TEXT_LEN) return sendError(413, "text too long");
 
-  const String markup = applyInitialStyle(text, size, align, bold, underline);
   String error;
-  if (!printerRichText(markup, feed, error)) {
+  bool ok = false;
+  if (plain) {
+    ok = printerPlainText(text, feed, error);
+  } else {
+    const String markup = applyInitialStyle(text, size, align, bold, underline);
+    ok = printerRichText(markup, feed, error);
+  }
+  if (!ok) {
     return sendError(503, error.length() ? error.c_str() : "printer not ready");
   }
   sendOk("printed");
@@ -651,6 +659,22 @@ void sdSetError(const char* message) {
   snprintf(sdJob.errorMsg, sizeof(sdJob.errorMsg), "%s", message);
 }
 
+const char* sdMimeType(const String& name) {
+  const int dot = name.lastIndexOf('.');
+  String ext = dot >= 0 ? name.substring(dot) : String();
+  ext.toLowerCase();
+  if (ext == ".png") return "image/png";
+  if (ext == ".jpg" || ext == ".jpeg") return "image/jpeg";
+  if (ext == ".gif") return "image/gif";
+  if (ext == ".bmp") return "image/bmp";
+  if (ext == ".webp") return "image/webp";
+  if (ext == ".txt" || ext == ".md" || ext == ".markdown" || ext == ".csv" ||
+      ext == ".log") {
+    return "text/plain; charset=utf-8";
+  }
+  return "application/octet-stream";
+}
+
 void handleSdList() {
   JsonDocument doc;
   doc["ok"] = true;
@@ -722,10 +746,7 @@ void handleSdFile() {
     server.sendHeader("Content-Disposition",
                       String("attachment; filename=\"") + name + "\"");
   }
-  const bool text = sdFileKind(name) == SdFileKind::Text ||
-                    sdFileKind(name) == SdFileKind::Plain;
-  server.streamFile(file, text ? "text/plain; charset=utf-8"
-                              : "application/octet-stream");
+  server.streamFile(file, sdMimeType(name));
   file.close();
 }
 
@@ -765,7 +786,10 @@ void handleSdUpload() {
   if (upload.status == UPLOAD_FILE_WRITE) {
     if (sdJob.error) return;
 
-    if ((uint32_t)sdJob.bytes + upload.currentSize > MAX_SD_FILE_BYTES) {
+    const uint32_t limit = sdJob.kind == SdFileKind::Source
+                               ? MAX_SD_SOURCE_BYTES
+                               : MAX_SD_FILE_BYTES;
+    if ((uint32_t)sdJob.bytes + upload.currentSize > limit) {
       return sdSetError("file too large");
     }
 
@@ -907,8 +931,12 @@ void handleSdPrint() {
     ok = sdPrintText(name, (uint8_t)feed, error);
   } else if (kind == SdFileKind::Plain) {
     ok = sdPrintPlainText(name, (uint8_t)feed, error);
-  } else {
+  } else if (kind == SdFileKind::Source) {
+    return sendError(400, "source image: open it in Photo and save as .bin");
+  } else if (kind == SdFileKind::Image) {
     ok = sdPrintBitmap(name, (uint8_t)feed, error);
+  } else {
+    return sendError(400, "bad file type");
   }
   if (!ok) {
     const bool notReady = error == "printer not ready";

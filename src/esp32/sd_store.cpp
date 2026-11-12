@@ -18,7 +18,14 @@ bool isAsciiNameChar(char c) {
 
 bool isKnownExtension(const String& ext) {
   return ext == ".bin" || ext == ".raw" || ext == ".prn" || ext == ".txt" ||
-         ext == ".md" || ext == ".markdown" || ext == ".csv" || ext == ".log";
+         ext == ".md" || ext == ".markdown" || ext == ".csv" || ext == ".log" ||
+         ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" ||
+         ext == ".bmp" || ext == ".webp";
+}
+
+bool isSourceImageExtension(const String& ext) {
+  return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" ||
+         ext == ".bmp" || ext == ".webp";
 }
 
 String lowerExt(const String& name) {
@@ -173,12 +180,14 @@ SdFileKind sdFileKind(const String& name) {
   if (ext == ".md" || ext == ".markdown" || ext == ".csv" || ext == ".log") {
     return SdFileKind::Plain;
   }
+  if (isSourceImageExtension(ext)) return SdFileKind::Source;
   return SdFileKind::Image;
 }
 
 const char* sdKindName(SdFileKind kind) {
   switch (kind) {
     case SdFileKind::Image: return "image";
+    case SdFileKind::Source: return "source";
     case SdFileKind::Raw: return "raw";
     case SdFileKind::Text: return "text";
     case SdFileKind::Plain: return "plain";
