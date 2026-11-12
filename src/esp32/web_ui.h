@@ -373,17 +373,21 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
       <div class="grid">
         <label>Тип<select id="bcType">
           <option value="CODE128">CODE128</option>
+          <option value="CODE93">CODE93</option>
           <option value="EAN13">EAN13</option>
           <option value="EAN8">EAN8</option>
           <option value="CODE39">CODE39</option>
           <option value="ITF">ITF</option>
           <option value="CODABAR">CODABAR</option>
+          <option value="UPCA">UPC-A</option>
+          <option value="UPCE">UPC-E</option>
         </select></label>
         <label>Данные<input id="bcData" placeholder="123456789012"></label>
         <label>Высота<input id="bcHeight" type="number" min="1" max="255" value="60"></label>
         <label>Ширина<input id="bcWidth" type="number" min="1" max="6" value="2"></label>
       </div>
-      <div class="actions"><button class="primary" id="btnBc">Печать штрихкода</button></div>
+      <div class="actions"><button class="primary" id="btnBc">Печать штрихкода</button>
+        <button id="btnBcTest">Тест всех типов</button></div>
     </div>
   </section>
 
@@ -447,6 +451,7 @@ canvas#preview,canvas#sdPreview{width:100%;max-width:384px;height:auto;image-ren
         <button class="primary" id="btnSaveCfg">Сохранить настройки</button>
         <button id="btnCodePageTest">Тест кодовых страниц</button>
         <button id="btnCommandTest">Тест команд</button>
+        <button id="btnSelfTest">Самотест принтера</button>
       </div>
       <div class="hint">Baud: <span id="cfgBaud">—</span> · ширина: <span id="cfgWidth">—</span> точек · кодовая страница: <span id="cfgCpLabel">—</span>. Кириллица: 6 = CP1251, 7 = CP866 (46 — это Hebrew, 17 — Greek, на них будут «кракозябры»). Скорость должна совпадать с принтером — обычно 9600.</div>
       <div class="actions">
@@ -495,7 +500,8 @@ POST /api/barcode                {"type":"CODE128","data":"..."}
 POST /api/feed                   {"lines":3}
 POST /api/raw                    multipart file: сырой ESC/POS
 POST /api/test                   тестовая страница
-POST /api/test/codepage          тест кодовых страниц (46/17)
+POST /api/test/self              самотест принтера (DC2 T)
+POST /api/test/codepage          тест кодовых страниц (6/7)
 GET  /api/print?text=...         печать текста из URL
 POST /api/restart                перезагрузка
 POST /api/wifi/reset             сброс Wi-Fi и перезагрузка
@@ -2033,6 +2039,11 @@ $('#btnBc').addEventListener('click', async () => {
   } catch (e) { toast(e.message, false); }
 });
 
+$('#btnBcTest').addEventListener('click', async () => {
+  try { await api('/api/test/barcode', { method: 'POST' }); toast('Печать всех типов штрихкодов'); }
+  catch (e) { toast(e.message, false); }
+});
+
 /* ---------- SD-карта ---------- */
 function renderSdList() {
   const box = $('#sdList');
@@ -2268,6 +2279,12 @@ $('#btnCodePageTest').addEventListener('click', async () => {
 
 $('#btnCommandTest').addEventListener('click', async () => {
   try { await api('/api/test/bytes', { method: 'POST' }); toast('Тест команд напечатан'); }
+  catch (e) { toast(e.message, false); }
+});
+
+$('#btnSelfTest').addEventListener('click', async () => {
+  if (!confirm('Принтер напечатает свою страницу самотеста (baudrate, heat, версия). Продолжить?')) return;
+  try { await api('/api/test/self', { method: 'POST' }); toast('Самотест запущен'); }
   catch (e) { toast(e.message, false); }
 });
 

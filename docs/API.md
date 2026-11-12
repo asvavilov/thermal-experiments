@@ -243,16 +243,32 @@ print(img.size)
 ## POST /api/barcode
 
 ```json
-{"type": "CODE128", "data": "ABC-123", "height": 60, "width": 2, "feed": 2}
+{"type": "CODE128", "data": "Thermal58", "height": 60, "width": 2, "feed": 2}
 ```
 
 | Поле | Тип | По умолчанию | Описание |
 |---|---|---|---|
-| `type` | string | `"CODE128"` | CODE128, EAN13, EAN8, CODE39, ITF, CODABAR, UPCA, UPCE |
+| `type` | string | `"CODE128"` | CODE128, CODE93, EAN13, EAN8, CODE39, ITF, CODABAR, UPCA, UPCE |
 | `data` | string | — | До 255 символов |
 | `height` | int | 60 | Высота 1–255 |
 | `width` | int | 2 | Ширина 1–6 |
 | `feed` | int | 2 | Строк после, 0–20 |
+
+ESC/POS `GS k` со штрихкодовыми `m`: `69/70/71` для CODE39/ITF/CODABAR,
+`65/66/67/68` для UPC-A/UPC-E/EAN13/EAN8, `72` — CODE93, `73` — CODE128
+(данные CODE128 автоматически оборачиваются в `{B`). Старые коды
+`4/5/6` не используются: это формат без байта длины, а прошивка всегда
+передаёт длину.
+
+CODE39 и CODE93 кодируют только заглавные латинские буквы и цифры —
+нижний регистр в них не пройдёт (`Thermal58` → `THERMAL58`). CODE128
+принимает любой ASCII, включая строчные.
+
+## POST /api/test/barcode
+
+Печатает по одному штрихкоду каждого поддерживаемого типа (аналог
+`testBars()` из исходного скетча плюс UPC-E): UPC-A, UPC-E, EAN-13,
+EAN-8, CODE39, CODE93, ITF, CODABAR, CODE128.
 
 ## POST /api/feed
 
@@ -281,6 +297,13 @@ curl.exe -X POST http://thermal.local/api/raw -F "file=@commands.bin"
 ## POST /api/test
 
 Печатает тестовую страницу: заголовок, русский текст, IP и QR.
+
+## POST /api/test/self
+
+Встроенный самотест принтера — `DC2 T` (`0x12 0x54`), тот же, что
+`printer.testPage()` в Adafruit_Thermal. Плата печатает свою
+конфигурацию: baudrate, heat density, версию прошивки, кодовую страницу.
+Именно с такой страницы сняты параметры в `HARDWARE.md`, раздел 1.
 
 ```bash
 curl.exe -X POST http://thermal.local/api/test

@@ -106,7 +106,8 @@ bool boolFromString(const String& value) {
 bool barcodeSupported(const String& type) {
   String t = type;
   t.toUpperCase();
-  return t == "CODE128" || t == "CODE-128" || t == "EAN13" || t == "EAN-13" ||
+  return t == "CODE128" || t == "CODE-128" || t == "CODE93" ||
+         t == "CODE-93" || t == "EAN13" || t == "EAN-13" ||
          t == "EAN8" || t == "EAN-8" || t == "CODE39" || t == "CODE-39" ||
          t == "ITF" || t == "CODABAR" || t == "UPCA" || t == "UPC-A" ||
          t == "UPCE" || t == "UPC-E";
@@ -208,6 +209,8 @@ void handleInfo() {
   endpoints.add("POST /api/test");
   endpoints.add("POST /api/test/codepage");
   endpoints.add("POST /api/test/bytes");
+  endpoints.add("POST /api/test/self");
+  endpoints.add("POST /api/test/barcode");
   endpoints.add("GET  /api/debug/tx");
   endpoints.add("GET  /api/print?text=...");
   endpoints.add("POST /api/restart");
@@ -418,6 +421,16 @@ void handleCodePageTest() {
 void handleCommandTest() {
   if (!printerCommandTest()) return sendError(503, "printer not ready");
   sendOk("command test printed");
+}
+
+void handleSelfTest() {
+  if (!printerSelfTest()) return sendError(503, "printer not ready");
+  sendOk("printer self-test started");
+}
+
+void handleBarcodeTest() {
+  if (!printerBarcodeTest()) return sendError(503, "printer not ready");
+  sendOk("barcode test printed");
 }
 
 void handleDebugTx() {
@@ -1016,6 +1029,8 @@ void setupWeb() {
   server.on("/api/test", HTTP_POST, handleTest);
   server.on("/api/test/codepage", HTTP_POST, handleCodePageTest);
   server.on("/api/test/bytes", HTTP_POST, handleCommandTest);
+  server.on("/api/test/self", HTTP_POST, handleSelfTest);
+  server.on("/api/test/barcode", HTTP_POST, handleBarcodeTest);
   server.on("/api/debug/tx", HTTP_GET, handleDebugTx);
   server.on("/api/print", HTTP_GET, handlePrintGet);
   server.on("/api/bitmap", HTTP_POST, handleBitmapDone, handleBitmapUpload);

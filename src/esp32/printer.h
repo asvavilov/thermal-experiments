@@ -26,6 +26,8 @@ uint8_t printerCodePage();
 void printerSetCodePageValue(uint8_t page);
 bool printerCodePageTest();
 bool printerCommandTest();
+bool printerSelfTest();
+bool printerBarcodeTest();
 void printerTxLogReset();
 size_t printerTxLog(uint8_t* out, size_t cap);
 bool printerText(const String& utf8, uint8_t size, bool bold, bool underline,

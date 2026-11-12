@@ -725,16 +725,18 @@ bool printerBarcode(const String& type, const String& data, uint8_t height,
   if (t == "CODE128" || t == "CODE-128") {
     m = 73;
     if (!d.startsWith("{")) d = "{B" + d;
+  } else if (t == "CODE93" || t == "CODE-93") {
+    m = 72;
   } else if (t == "EAN13" || t == "EAN-13") {
     m = 67;
   } else if (t == "EAN8" || t == "EAN-8") {
     m = 68;
   } else if (t == "CODE39" || t == "CODE-39") {
-    m = 4;
+    m = 69;  // расширенный GS k (с длиной); 4 — старый формат без длины
   } else if (t == "ITF") {
-    m = 5;
+    m = 70;
   } else if (t == "CODABAR") {
-    m = 6;
+    m = 71;
   } else if (t == "UPCA" || t == "UPC-A") {
     m = 65;
   } else if (t == "UPCE" || t == "UPC-E") {
@@ -775,6 +777,39 @@ bool printerTestPage() {
   if (!printerText("384 точки, ESC/POS, CP1251", 1, false, false, 'L', 1)) return false;
   if (!printerText("http://" + WiFi.localIP().toString(), 1, false, false, 'L', 2)) return false;
   return printerQr("http://" + WiFi.localIP().toString(), 4, 3);
+}
+
+// Встроенный самотест принтера: DC2 T (0x12 0x54), как Adafruit testPage().
+// Печатает конфигурацию платы: baudrate, heat, версию прошивки, страницу.
+bool printerSelfTest() {
+  const uint8_t cmd[] = {0x12, 0x54};
+  return writeBytes(cmd, sizeof(cmd));
+}
+
+// Печатает по одному штрихкоду каждого поддерживаемого типа (аналог
+// testBars() из исходного скетча).
+bool printerBarcodeTest() {
+  struct Item {
+    const char* label;
+    const char* type;
+    const char* data;
+  };
+  const Item items[] = {
+      {"UPC-A", "UPCA", "123456789012"},
+      {"UPC-E", "UPCE", "01234565"},
+      {"EAN-13", "EAN13", "1234567890123"},
+      {"EAN-8", "EAN8", "12345678"},
+      {"CODE 39", "CODE39", "THERMAL58"},
+      {"CODE 93", "CODE93", "THERMAL58"},
+      {"ITF", "ITF", "1234567890"},
+      {"CODABAR", "CODABAR", "1234567890"},
+      {"CODE128", "CODE128", "Thermal58"},
+  };
+  for (const Item& it : items) {
+    if (!printerText(it.label, 1, false, false, 'L', 0)) return false;
+    if (!printerBarcode(it.type, it.data, 60, 2, 2)) return false;
+  }
+  return true;
 }
 
 PrinterStatus printerQueryStatus() {
